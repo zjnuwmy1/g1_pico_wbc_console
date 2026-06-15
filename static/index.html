@@ -300,45 +300,47 @@
 
     <section class="step-panel" id="panel-7">
       <h2>步骤 7 · 数据录制（模仿学习 / StageAct）</h2>
-      <p class="warn">在 <strong>PICO 全链路遥操作</strong>（释放模式 → deploy → streamer → 手桥）跑起来后，本页录制同步的
-        <strong>(图像 + 本体 + 手 + 动作)</strong> 帧用于模仿学习。<strong>动作 = 你的遥操作指令</strong>（腕 3 点目标 + 扳机/握），
-        训练出的策略可直接回灌同一套 WBC+手桥执行。可用本页按钮 <em>或</em> PICO 手柄的数据采集键起停 episode。</p>
+      <p class="warn">PICO 全链路遥操作跑起来后，本页录 <strong>(图像 + 本体 + 手 + 动作)</strong> 帧。
+        <strong>动作 = 你的遥操作指令</strong>（腕 3 点目标 + 扳机/握），训练出的策略可直接回灌同一套 WBC+手桥。</p>
+
+      <div class="card" style="border-color:#2e7d52;background:#15241c">
+        <h3>🎮 最省事：戴着头显用手柄起停（全程不碰电脑）</h3>
+        <p style="font-size:15px;line-height:1.8;margin:4px 0">
+          <strong>左 Grip + A</strong> = 开始 / 停止保存 一条 &nbsp;·&nbsp;
+          <strong>左 Grip + B</strong> = 丢弃当前条<br>
+          先点下面「准备录制」起一次后端，之后整轮采集都在手柄上完成，每条录完放回瓶子复位即可。
+        </p>
+      </div>
 
       <div class="card proc-card">
-        <h3>① 录制后端 <span class="proc-pill" id="pill-recorder">未运行</span></h3>
+        <h3>① 准备录制 <span class="proc-pill" id="pill-recorder">未运行</span> <span class="pill" id="rec-status">rec: –</span></h3>
         <div class="row">
-          <button class="btn" onclick="startProc('recorder')">启动录制器</button>
-          <button class="btn" onclick="stopProc('recorder')">停止</button>
-          <span class="pill" id="rec-status">rec: –</span>
+          <label>任务目标：<input type="text" id="rec-goal" value="拿瓶子" style="width:170px"></label>
+          <button class="btn primary" onclick="recPrepare()">🔴 准备录制（起后端 + 设目标）</button>
+          <button class="btn" onclick="stopProc('recorder')">停止后端</button>
         </div>
-        <p class="warn" style="margin-top:4px">订阅：streamer 5556(动作) · PC2 头相机 55555/55565(图像) · DDS rt/lowstate + rt/brainco(本体/手)。状态行见日志 <code>[rec] STATUS</code>。</p>
+        <p class="warn" style="margin-top:4px">订阅 streamer 5556(动作)·PC2 头相机 55555/55565·DDS rt/lowstate+rt/brainco。落盘 <code>recordings/</code>。</p>
         <pre class="logpane small collapsed" id="log-recorder" onclick="this.classList.toggle('collapsed')"></pre>
       </div>
 
       <div class="card">
-        <h3>② 任务 + 阶段</h3>
+        <h3>② 录一条 <span class="pill" id="rec-ep">未录</span></h3>
         <div class="row">
-          <label>任务目标：<input type="text" id="rec-goal" placeholder="拿瓶子" style="width:200px"></label>
-          <button class="btn" onclick="recGoal()">设定目标</button>
-          <span class="pill">当前阶段：<strong id="rec-stage">0</strong></span>
+          <button class="btn primary" id="rec-toggle" onclick="recToggle()" style="min-width:210px;font-size:16px">● 开始这条（空格）</button>
+          <button class="btn danger-btn" onclick="recCmd('discard')">✕ 丢弃</button>
         </div>
-        <div class="row" style="margin-top:8px">
+        <p class="warn" style="margin-top:6px">手柄 <strong>左 Grip+A</strong> 或 <strong>空格键</strong>（聚焦本页）= 起停一条。每条 = 一次完整拿瓶，放回复位再录下一条，先求 ~50 条。</p>
+      </div>
+
+      <div class="card">
+        <h3>③ 阶段标注 <span class="pill">当前：<strong id="rec-stage">0</strong></span></h3>
+        <div class="row">
           <button class="btn" onclick="recStage(0,'接近')">① 接近</button>
           <button class="btn" onclick="recStage(1,'对位')">② 对位</button>
           <button class="btn" onclick="recStage(2,'抓取')">③ 抓取</button>
           <button class="btn" onclick="recStage(3,'提起')">④ 提起</button>
         </div>
-        <p class="warn" style="margin-top:6px">拿瓶子分段：接近 → 对位 → 合手抓取 → 提起。录制时随动作点对应阶段，边界写进每帧。</p>
-      </div>
-
-      <div class="card">
-        <h3>③ Episode 控制 <span class="pill" id="rec-ep">未录</span></h3>
-        <div class="row">
-          <button class="btn primary" onclick="recCmd('start')">● 开始 Episode</button>
-          <button class="btn" onclick="recCmd('stop')">■ 停止并保存</button>
-          <button class="btn danger-btn" onclick="recCmd('discard')">✕ 丢弃</button>
-        </div>
-        <p class="warn" style="margin-top:6px">PICO 手柄数据采集键同样可起停，abort 键丢弃。每个 episode = 一次完整拿瓶；放回瓶子复位后再录下一条。先求 ~50 条。</p>
+        <p class="warn" style="margin-top:6px">拿瓶子分段：接近 → 对位 → 合手抓取 → 提起。录制时随动作点对应阶段，边界写进每帧（StageAct 用）。</p>
       </div>
     </section>
   </main>

@@ -118,18 +118,34 @@ document.addEventListener("keyup", (ev) => {
 });
 
 /* ── episode recorder (StageAct data collection): relay to /api/record ── */
+let _recOn = false;
 async function recCmd(cmd, extra) {
   if (cmd === "discard" && !(await uiConfirm("丢弃当前 episode？此条数据不保存。"))) return;
   await api("/api/record", Object.assign({ cmd }, extra || {}));
+}
+function recToggle() { recCmd(_recOn ? "stop" : "start"); }   // one button / spacebar / grip+A
+async function recPrepare() {
+  // one-click: start the recorder backend (if not already up) + set the goal
+  if (!(STATE && STATE.procs && STATE.procs.recorder && STATE.procs.recorder.alive)) {
+    await api("/api/procs/recorder/start", {});
+    await new Promise((r) => setTimeout(r, 1500));   // let it bind sockets / DDS
+  }
+  const goal = (($("rec-goal") && $("rec-goal").value) || "").trim() || "拿瓶子";
+  await api("/api/record", { cmd: "goal", goal });
+  poll();
 }
 function recStage(stage, label) {
   api("/api/record", { cmd: "stage", stage, label });
   if ($("rec-stage")) $("rec-stage").textContent = String(stage);
 }
-function recGoal() {
-  const goal = ($("rec-goal") && $("rec-goal").value || "").trim();
-  if (goal) api("/api/record", { cmd: "goal", goal });
-}
+// spacebar = start/stop an episode while step 7 is focused (desk operation)
+document.addEventListener("keydown", (ev) => {
+  if (ev.code === "Space" && document.getElementById("panel-7")?.classList.contains("active")
+      && ev.target.tagName !== "INPUT" && ev.target.tagName !== "TEXTAREA") {
+    ev.preventDefault();
+    recToggle();
+  }
+});
 
 /* ── in-page confirm modal ── the native confirm() can be permanently
    suppressed by the browser ("阻止此页面再创建对话框"), which makes every
@@ -428,10 +444,13 @@ async function pollLogs() {
           if (st) {
             const g = (k) => (st.match(new RegExp(k + "=(\\S+)")) || [])[1];
             const rec = g("rec"), ep = g("ep"), fr = g("frames"), sg = g("stage"), sv = g("saved");
+            _recOn = (rec === "ON");
             const sp = $("rec-status");
-            if (sp) { sp.textContent = `rec:${rec} saved:${sv}`; sp.className = "pill" + (rec === "ON" ? " ok" : ""); }
-            if ($("rec-ep")) $("rec-ep").textContent = rec === "ON" ? `录制中 ep=${ep} 帧=${fr}` : "未录";
+            if (sp) { sp.textContent = `rec:${rec} saved:${sv}`; sp.className = "pill" + (_recOn ? " ok" : ""); }
+            if ($("rec-ep")) $("rec-ep").textContent = _recOn ? `录制中 ep=${ep} 帧=${fr}` : "未录";
             if (sg && $("rec-stage")) $("rec-stage").textContent = sg;
+            const tg = $("rec-toggle");
+            if (tg) { tg.textContent = _recOn ? "■ 停止保存（空格）" : "● 开始这条（空格）"; tg.className = "btn " + (_recOn ? "danger-btn" : "primary"); }
           }
         }
       }
