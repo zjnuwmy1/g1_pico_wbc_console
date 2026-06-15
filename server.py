@@ -122,22 +122,39 @@ def run_pico_probe() -> dict:
 def run_g1_mode(action: str, name: str = "") -> dict:
     if not config.VENV_PY.is_file():
         return {"ok": False, "error": ".venv_teleop 不存在"}
+    # A running deploy saturates the DDS domain on the robot interface and starves
+    # the MotionSwitcher RPC — every CheckMode/ReleaseMode call then times out and
+    # the button looks dead ("按不动"). Correct order is: stop deploy → switch mode
+    # → restart deploy. Refuse fast with a clear message instead of hanging 30s.
+    if PM.any_alive(("deploy_real", "deploy_sim")):
+        return {"ok": False, "error": "请先停止 deploy 再操作模式 —— deploy 占满机器人 "
+                "DDS 域会让模式 RPC 卡死超时(实测 30s)。正确顺序:停 deploy → 释放/切换模式 → 再起 deploy。"}
     robot = checks.find_real_robot_interface()
     if robot is None:
         return {"ok": False, "error": "未检测到机器人网接口(192.168.123.x)，检查机器人网/上电"}
     cmd = [str(config.VENV_PY), str(config.G1_MODE_PY), robot[0], action]
     if action == "select" and name:
         cmd.append(name)
-    try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
-                           cwd=str(config.REPO_ROOT))
-        line = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else "{}"
+    # The first DDS participant after an idle period reliably fails CheckMode with
+    # code 3104 (cold service discovery) and primes the kernel multicast state; a
+    # fresh subprocess then succeeds. Each GUI click is a brand-new subprocess, so
+    # it always pays that first-call cost. Auto-retry the whole subprocess on a
+    # 3104 to make the button just work. (≤2 attempts, still bounded < server cap.)
+    res = {"ok": False, "error": "未执行"}
+    for attempt in range(2):
         try:
-            return json.loads(line)
-        except ValueError:
-            return {"ok": False, "error": (p.stdout + p.stderr)[-400:]}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "G1 模式操作超时(30s)，机器人主控在跑吗?"}
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
+                               cwd=str(config.REPO_ROOT))
+            line = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else "{}"
+            try:
+                res = json.loads(line)
+            except ValueError:
+                res = {"ok": False, "error": (p.stdout + p.stderr)[-400:]}
+        except subprocess.TimeoutExpired:
+            res = {"ok": False, "error": "G1 模式操作超时(30s)，机器人主控在跑吗?"}
+        if res.get("ok") or "3104" not in str(res.get("error", "")):
+            break
+    return res
 
 
 # ── checks cache ─────────────────────────────────────────────────────────────

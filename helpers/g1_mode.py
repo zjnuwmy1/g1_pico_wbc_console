@@ -20,7 +20,7 @@ import sys
 import time
 
 
-def _check(msc, retries=8):
+def _check(msc, retries=3):  # server.run_g1_mode wraps a 2nd subprocess on 3104
     # The motion_switcher RPC intermittently times out (code 3104) on a freshly
     # initialised DDS participant — discovery isn't warm yet. Retry until it
     # answers (code 0). The robot itself is fine (publishes lowstate at ~1kHz).
@@ -52,8 +52,10 @@ def main():
         else:
             ChannelFactoryInitialize(0)
         msc = MotionSwitcherClient()
-        msc.SetTimeout(5.0)
+        msc.SetTimeout(2.0)   # 8 retries * 2s + sleeps ≈ 20s, under server's 30s cap
         msc.Init()
+        time.sleep(1.0)       # let DDS service discovery warm up before first RPC
+                              # (cold participant => first CheckMode often 3104)
     except Exception as e:
         print(json.dumps({"ok": False, "error": f"DDS/MotionSwitcher 初始化失败(机器人可达?): {e}"}))
         return

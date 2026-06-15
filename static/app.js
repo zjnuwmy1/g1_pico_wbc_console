@@ -98,8 +98,8 @@ function driveSend(extra) {
     ? `前${_drive.fwd} 移${_drive.strafe} 转${_drive.turn}` : "停";
   api("/api/drive", body);
 }
-function drivePolicy(p) {
-  if (p === "start" && !confirm("启动策略 = 机器人开始被控制（Init Done 后会动）。确认场地清空、急停在手？")) return;
+async function drivePolicy(p) {
+  if (p === "start" && !(await uiConfirm("启动策略 = 机器人开始被控制（Init Done 后会动）。确认场地清空、急停在手？"))) return;
   driveSend({ policy: p });
 }
 function driveHold(axis, v) { _drive[axis] = v; driveSend(); }
@@ -116,24 +116,62 @@ document.addEventListener("keyup", (ev) => {
   if (_driveKeys[ev.key]) { const [ax] = _driveKeys[ev.key]; if (_drive[ax] !== 0) { _drive[ax] = 0; driveSend(); } }
 });
 
+/* ── in-page confirm modal ── the native confirm() can be permanently
+   suppressed by the browser ("阻止此页面再创建对话框"), which makes every
+   danger button that gates on it look unclickable ("点不动"). This self-drawn
+   modal never gets blocked. Returns a Promise<bool>. ── */
+function uiConfirm(message) {
+  return new Promise((resolve) => {
+    const ov = document.createElement("div");
+    ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center";
+    const box = document.createElement("div");
+    box.style.cssText = "background:#1b2433;border:1px solid #3a4a60;border-radius:10px;max-width:460px;padding:22px;color:#e6edf6;box-shadow:0 10px 40px rgba(0,0,0,.5)";
+    const msg = document.createElement("div");
+    msg.style.cssText = "white-space:pre-wrap;line-height:1.55;margin-bottom:18px;font-size:15px";
+    msg.textContent = message;
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:12px;justify-content:flex-end";
+    const cancel = document.createElement("button");
+    cancel.className = "btn"; cancel.textContent = "取消";
+    const ok = document.createElement("button");
+    ok.className = "btn danger-btn"; ok.textContent = "确认";
+    const done = (v) => { ov.remove(); document.removeEventListener("keydown", onKey); resolve(v); };
+    const onKey = (e) => { if (e.key === "Escape") done(false); else if (e.key === "Enter") done(true); };
+    cancel.onclick = () => done(false);
+    ok.onclick = () => done(true);
+    document.addEventListener("keydown", onKey);
+    row.append(cancel, ok); box.append(msg, row); ov.append(box);
+    document.body.append(ov);
+    ok.focus();
+  });
+}
+
 /* ── real G1 high-level mode switch (release for lowcmd / re-select) ── */
 async function g1Mode(action, name) {
   const out = $("g1mode-out");
+  const pill = $("pill-g1mode");
+  if (g1Mode._busy) return;                       // ignore double-clicks
   if (action === "release" &&
-      !confirm("⚠ 释放高层模式 = 原生运控脱离，机器人会变软、靠吊架承重！\n\n确认：① 已停 deploy ② 吊架张紧 ③ 急停在手？")) {
+      !(await uiConfirm("⚠ 释放高层模式 = 原生运控脱离，机器人会变软、靠吊架承重！\n\n确认：① 已停 deploy ② 吊架张紧 ③ 急停在手？"))) {
     return;
   }
-  out.textContent = "执行中…";
-  const body = { action };
-  if (action === "release") body.confirm = true;
-  if (name) body.name = name;
-  const r = await api("/api/g1/mode", body);
-  out.textContent = JSON.stringify(r, null, 2);
-  const pill = $("pill-g1mode");
-  const m = r.after !== undefined ? r.after : r.mode;
-  if (r.ok && action === "release") { pill.textContent = "已释放 (lowcmd 就绪)"; pill.className = "proc-pill ok"; }
-  else if (m) { pill.textContent = m.name || "(无)"; pill.className = "proc-pill"; }
-  else if (!r.ok) { pill.textContent = "失败"; pill.className = "proc-pill err"; }
+  g1Mode._busy = true;
+  // immediate, unmistakable feedback — DDS cold-start can take ~15s
+  out.textContent = "⏳ 执行中…（约 15s，正在与机器人 DDS 通信，请勿重复点击）";
+  pill.textContent = "执行中…"; pill.className = "proc-pill";
+  try {
+    const body = { action };
+    if (action === "release") body.confirm = true;
+    if (name) body.name = name;
+    const r = await api("/api/g1/mode", body);
+    out.textContent = JSON.stringify(r, null, 2);
+    const m = r.after !== undefined ? r.after : r.mode;
+    if (r.ok && action === "release") { pill.textContent = "已释放 (lowcmd 就绪)"; pill.className = "proc-pill ok"; }
+    else if (m) { pill.textContent = m.name || "(无)"; pill.className = "proc-pill"; }
+    else if (!r.ok) { pill.textContent = "失败"; pill.className = "proc-pill err"; }
+  } finally {
+    g1Mode._busy = false;
+  }
 }
 
 async function estop() {

@@ -92,7 +92,11 @@ import 上游 `build_command_message` / `build_planner_message`，把按钮意�
 
 - **急停**：底栏红色 E-STOP / 手柄 A+B+X+Y / deploy 终端 `o` —— 向部署进程 stdin 写官方急停字符 `o`（策略干净自退），再 SIGINT streamer；手桥靠 staleness 自动张开。
 - **真机部署进程绝不 SIGKILL**（本机有 arm_sdk 强杀后卡死、只能断电的历史）。优雅停止梯度：`o` → SIGINT → SIGTERM → 「需人工处理」横幅。
-- `Init Done` 后约 3s 机器人会缓动到默认站姿 —— 所以安全门在**启动部署前**。
+- deploy 的状态机是 `INIT → WAIT_FOR_CONTROL → CONTROL`。到 `Init Done` 进的是
+  **`WAIT_FOR_CONTROL`(待命,安全 hold,机器人不动)**;**只有收到 5556 上的 `start` 信号
+  （streamer 开始组合键 / gui_drive「启动策略」按钮 → `command{start:True}`）才进 `CONTROL`**,
+  此时才缓动到默认站姿、开始发力。所以"deploy 起来了姿势没变"是**正常**的,不是故障。
+  机器人真正开始动 = 你点了 start,安全门 + 姿态确认要卡在**点 start 前**。
 - 步骤 5 安全确认**不持久化**，每次进真机模式都要重新确认。
 - sim 与真机部署进程互斥，GUI 已强制。
 
