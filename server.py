@@ -317,6 +317,17 @@ class Handler(BaseHTTPRequestHandler):
             line = (json.dumps(intent) + "\n").encode()
             self._json(200, PM.write_stdin("gui_drive", line))
             return
+        if u.path == "/api/record":
+            # relay episode-recorder control to the recorder process via its stdin
+            cmd = body.get("cmd")
+            if cmd not in ("start", "stop", "discard", "stage", "goal", "quit"):
+                self._json(400, {"ok": False, "error": "bad cmd"})
+                return
+            allowed = ("cmd", "stage", "label", "goal")
+            intent = {k: body[k] for k in allowed if k in body}
+            line = (json.dumps(intent) + "\n").encode()
+            self._json(200, PM.write_stdin("recorder", line))
+            return
         if u.path == "/api/g1/mode":
             action = body.get("action", "check")
             if action not in ("check", "release", "select"):

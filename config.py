@@ -38,6 +38,12 @@ BRAINCO_BRIDGE_PY = CONSOLE_ROOT / "helpers" / "brainco_hand_bridge.py"
 # pico_streamer (both bind ZMQ 5556).
 GUI_DRIVE_PY = CONSOLE_ROOT / "helpers" / "gui_drive.py"
 
+# Teleop episode recorder (imitation-learning / StageAct data collection): records
+# synced (obs, action, stage) frames while you PICO-teleop a task. Subscribes to
+# the streamer pose (5556), PC2 head camera colour/depth, and DDS proprio/hands.
+RECORDER_PY = CONSOLE_ROOT / "helpers" / "episode_recorder.py"
+RECORDINGS_DIR = CONSOLE_ROOT / "recordings"
+
 STATE_FILE = CONSOLE_ROOT / "state" / "state.json"
 LOGS_DIR = CONSOLE_ROOT / "logs"
 STATIC_DIR = CONSOLE_ROOT / "static"

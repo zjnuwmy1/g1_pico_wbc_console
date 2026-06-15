@@ -33,7 +33,7 @@ function locoModeLabel(n, name) {
   return zh ? `${n} ${zh}` : `${n} ${name || ""}`;
 }
 const logSeqs = {};            // proc name -> last seq
-const LOG_PROCS = ["install_pico", "pc_service", "sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive"];
+const LOG_PROCS = ["install_pico", "pc_service", "sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "recorder"];
 // pico_streamer log is mirrored into two panes (step 4 + step 5)
 const LOG_PANES = {
   install_pico: ["log-install_pico"], pc_service: ["log-pc_service"],
@@ -42,6 +42,7 @@ const LOG_PANES = {
   pico_streamer: ["log-pico_streamer", "log-pico_streamer-5"],
   brainco_hand: ["log-brainco_hand"],
   gui_drive: ["log-gui_drive"],
+  recorder: ["log-recorder"],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -115,6 +116,20 @@ document.addEventListener("keydown", (ev) => {
 document.addEventListener("keyup", (ev) => {
   if (_driveKeys[ev.key]) { const [ax] = _driveKeys[ev.key]; if (_drive[ax] !== 0) { _drive[ax] = 0; driveSend(); } }
 });
+
+/* ── episode recorder (StageAct data collection): relay to /api/record ── */
+async function recCmd(cmd, extra) {
+  if (cmd === "discard" && !(await uiConfirm("丢弃当前 episode？此条数据不保存。"))) return;
+  await api("/api/record", Object.assign({ cmd }, extra || {}));
+}
+function recStage(stage, label) {
+  api("/api/record", { cmd: "stage", stage, label });
+  if ($("rec-stage")) $("rec-stage").textContent = String(stage);
+}
+function recGoal() {
+  const goal = ($("rec-goal") && $("rec-goal").value || "").trim();
+  if (goal) api("/api/record", { cmd: "goal", goal });
+}
 
 /* ── in-page confirm modal ── the native confirm() can be permanently
    suppressed by the browser ("阻止此页面再创建对话框"), which makes every
@@ -282,6 +297,7 @@ function renderState(s) {
   pillFor("pico_streamer", procs, "pill-pico_streamer-5");
   pillFor("brainco_hand", procs, "pill-brainco_hand");
   pillFor("gui_drive", procs, "pill-gui_drive");
+  pillFor("recorder", procs, "pill-recorder");
   // streamer 退出时 xrt SDK 析构必崩(rc=-6/SIGABRT)，且 A+B+X+Y 急停也会主动退出——
   // 都属正常，不显示成「异常退出」。
   const ps = procs["pico_streamer"];
@@ -406,6 +422,17 @@ async function pollLogs() {
           const lines = pane.textContent.split("\n");
           if (lines.length > 600) pane.textContent = lines.slice(-500).join("\n");
           if (!pane.classList.contains("collapsed")) pane.scrollTop = pane.scrollHeight;
+        }
+        if (name === "recorder") {
+          const st = res.lines.filter((l) => l.includes("STATUS")).pop();
+          if (st) {
+            const g = (k) => (st.match(new RegExp(k + "=(\\S+)")) || [])[1];
+            const rec = g("rec"), ep = g("ep"), fr = g("frames"), sg = g("stage"), sv = g("saved");
+            const sp = $("rec-status");
+            if (sp) { sp.textContent = `rec:${rec} saved:${sv}`; sp.className = "pill" + (rec === "ON" ? " ok" : ""); }
+            if ($("rec-ep")) $("rec-ep").textContent = rec === "ON" ? `录制中 ep=${ep} 帧=${fr}` : "未录";
+            if (sg && $("rec-stage")) $("rec-stage").textContent = sg;
+          }
         }
       }
     } catch (e) { /* transient */ }

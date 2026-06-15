@@ -341,6 +341,15 @@ class ProcessManager:
                 "gui_drive", [str(config.VENV_PY), str(config.GUI_DRIVE_PY)],
                 cwd=config.REPO_ROOT, profile="py",
             )
+        if name == "recorder":
+            import checks as _checks
+            robot = _checks.find_real_robot_interface()
+            iface = robot[0] if robot else "enp132s0"
+            return ProcSpec(
+                "recorder", [str(config.VENV_PY), str(config.RECORDER_PY), iface],
+                cwd=config.REPO_ROOT, profile="py",
+                env_extra={"REC_DIR": str(config.RECORDINGS_DIR), "REC_IFACE": iface},
+            )
         if name == "install_pico":
             return ProcSpec(
                 "install_pico", ["bash", str(config.INSTALL_PICO_SH)],
@@ -353,7 +362,7 @@ class ProcessManager:
             )
         raise KeyError(name)
 
-    KNOWN = ("sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "install_pico", "pc_service")
+    KNOWN = ("sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "recorder", "install_pico", "pc_service")
 
     # ── API ──────────────────────────────────────────────────────────────────
     def get(self, name: str) -> Proc | None:

@@ -20,6 +20,7 @@
     <div class="step-tab" data-step="4"><span class="num">4</span>仿真遥操作</div>
     <div class="step-tab danger" data-step="5"><span class="num">5</span>真机遥操作</div>
     <div class="step-tab danger" data-step="6"><span class="num">6</span>手动驾驶</div>
+    <div class="step-tab" data-step="7"><span class="num">7</span>数据录制</div>
   </nav>
 
   <main>
@@ -294,6 +295,50 @@
           <button class="btn" onclick="driveAllStop()">全停（移动归零）</button>
         </div>
         <p class="warn" style="margin-top:6px">键盘：聚焦本页后 <code>W/S</code> 前后、<code>A/D</code> 左右移、<code>Q/E</code> 转向（按住）。</p>
+      </div>
+    </section>
+
+    <section class="step-panel" id="panel-7">
+      <h2>步骤 7 · 数据录制（模仿学习 / StageAct）</h2>
+      <p class="warn">在 <strong>PICO 全链路遥操作</strong>（释放模式 → deploy → streamer → 手桥）跑起来后，本页录制同步的
+        <strong>(图像 + 本体 + 手 + 动作)</strong> 帧用于模仿学习。<strong>动作 = 你的遥操作指令</strong>（腕 3 点目标 + 扳机/握），
+        训练出的策略可直接回灌同一套 WBC+手桥执行。可用本页按钮 <em>或</em> PICO 手柄的数据采集键起停 episode。</p>
+
+      <div class="card proc-card">
+        <h3>① 录制后端 <span class="proc-pill" id="pill-recorder">未运行</span></h3>
+        <div class="row">
+          <button class="btn" onclick="startProc('recorder')">启动录制器</button>
+          <button class="btn" onclick="stopProc('recorder')">停止</button>
+          <span class="pill" id="rec-status">rec: –</span>
+        </div>
+        <p class="warn" style="margin-top:4px">订阅：streamer 5556(动作) · PC2 头相机 55555/55565(图像) · DDS rt/lowstate + rt/brainco(本体/手)。状态行见日志 <code>[rec] STATUS</code>。</p>
+        <pre class="logpane small collapsed" id="log-recorder" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+
+      <div class="card">
+        <h3>② 任务 + 阶段</h3>
+        <div class="row">
+          <label>任务目标：<input type="text" id="rec-goal" placeholder="拿瓶子" style="width:200px"></label>
+          <button class="btn" onclick="recGoal()">设定目标</button>
+          <span class="pill">当前阶段：<strong id="rec-stage">0</strong></span>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" onclick="recStage(0,'接近')">① 接近</button>
+          <button class="btn" onclick="recStage(1,'对位')">② 对位</button>
+          <button class="btn" onclick="recStage(2,'抓取')">③ 抓取</button>
+          <button class="btn" onclick="recStage(3,'提起')">④ 提起</button>
+        </div>
+        <p class="warn" style="margin-top:6px">拿瓶子分段：接近 → 对位 → 合手抓取 → 提起。录制时随动作点对应阶段，边界写进每帧。</p>
+      </div>
+
+      <div class="card">
+        <h3>③ Episode 控制 <span class="pill" id="rec-ep">未录</span></h3>
+        <div class="row">
+          <button class="btn primary" onclick="recCmd('start')">● 开始 Episode</button>
+          <button class="btn" onclick="recCmd('stop')">■ 停止并保存</button>
+          <button class="btn danger-btn" onclick="recCmd('discard')">✕ 丢弃</button>
+        </div>
+        <p class="warn" style="margin-top:6px">PICO 手柄数据采集键同样可起停，abort 键丢弃。每个 episode = 一次完整拿瓶；放回瓶子复位后再录下一条。先求 ~50 条。</p>
       </div>
     </section>
   </main>

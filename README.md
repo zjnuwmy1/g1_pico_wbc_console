@@ -76,6 +76,27 @@ import 上游 `build_command_message` / `build_planner_message`，把按钮意�
 - **与 PICO 数据流互斥**（都绑 5556，GUI 已强制）。真机用前同样要**释放高层模式**、deploy 在跑。
 - 急停照旧走 deploy `o`（footer 红钮 / 终端 `o`）。
 
+## 数据录制页（步骤 7，模仿学习 / StageAct · `helpers/episode_recorder.py`）
+
+在 **PICO 全链路遥操作**跑起来后，录制同步的 **(图像 + 本体 + 手 + 动作)** 帧用于模仿学习。
+采用 **"Option A"**：录的**动作 = 操作者的遥操作指令**（腕 3 点目标 + 扳机/握），训练出的策略
+可直接回灌同一套 WBC + 手桥执行，不改执行栈。
+
+订阅 4 路、30Hz 对齐快照、存原始字节（零额外依赖，免 cv2）：
+
+| 类别 | 内容 | 来源 |
+|---|---|---|
+| 动作 | `vr_position`(腕3点位置) `vr_orientation`(wxyz) `left/right_trigger`+`grip` `*_hand_joints` | ZMQ 5556 `pose` 消息（自描述 header 通用解析） |
+| 图像 | 头相机 RGB（JPEG）+ depth（PNG-16），原始字节存盘 | PC2 ZMQ 55555 / 55565 |
+| 本体 obs | 真机 29 关节 q/dq + 躯干 IMU | DDS `rt/lowstate` |
+| 手 obs | 手 6 关节 q（+触觉，待 brainco DDS 修） | DDS `rt/brainco/{l,r}/state` |
+
+- 落盘：`recordings/<session>/episode_XXXX/`（`frames/*.jpg`+`*.png` + `data.json`，每帧带 `action`/`state`/`stage`/时间戳）。
+- 控制：GUI 按钮（`/api/record` → recorder stdin）**或** PICO 手柄数据采集键（pose 里 `toggle_data_collection` 边沿）起停，abort 键丢弃。
+- **阶段标注**：拿瓶子分 接近→对位→抓取→提起，录制时点对应阶段按钮，边界写进每帧（StageAct 用）。
+- 状态从日志 `[rec] STATUS` 行解析显示（rec/ep/帧数/stage/saved）。
+- 训练前用离线脚本把 `data.json` + 原始帧特征化成 StageAct 张量（解耦录制与训练格式）。
+
 ## 仿真 Revo2 手 overlay（`overlay/`）
 
 把 sim 里的 Unitree Dex3 三指手换成 **BrainCo Revo2 六指手**，用于手指 sim-to-real，
@@ -114,6 +135,7 @@ import 上游 `build_command_message` / `build_planner_message`，把按钮意�
 | `overlay/build_revo2_model.py` | 生成 Revo2 手合并 MJCF（不碰上游） |
 | `overlay/run_sim_loop_revo2.py` | 带 Revo2 手 overlay 的 sim 启动器 |
 | `helpers/gui_drive.py` | 手动驾驶后端：GUI 按钮 → deploy planner（前后/转向/换步态），无需 PICO |
+| `helpers/episode_recorder.py` | 数据录制后端：同步 (图像+本体+手+动作) 帧 → `recordings/`，模仿学习/StageAct |
 | `static/` | 中文向导 UI |
 | `logs/<时间戳>/<进程>.log` | 每次运行的完整进程日志（.gitignore） |
 
