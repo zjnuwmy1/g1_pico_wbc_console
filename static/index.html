@@ -19,6 +19,7 @@
     <div class="step-tab" data-step="3"><span class="num">3</span>PICO 连接</div>
     <div class="step-tab" data-step="4"><span class="num">4</span>仿真遥操作</div>
     <div class="step-tab danger" data-step="5"><span class="num">5</span>真机遥操作</div>
+    <div class="step-tab danger" data-step="6"><span class="num">6</span>手动驾驶</div>
   </nav>
 
   <main>
@@ -240,6 +241,59 @@
           <button class="btn" onclick="stopProc('brainco_hand')">停止</button>
         </div>
         <pre class="logpane small collapsed" id="log-brainco_hand" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+    </section>
+
+    <!-- ── step 6: manual drive (no PICO) ── -->
+    <section class="step-panel" id="panel-6">
+      <h2 class="danger-text">步骤 6 · 手动驾驶（无需 PICO）</h2>
+      <p class="warn">⚠ 直接用本页按钮驱动机器人（前后/转向/换步态），<strong>不戴头显</strong>。前提：deploy(real 或 sim) 在跑（真机还需已<strong>释放高层模式</strong>）。本页与「PICO 数据流」互斥（都占 ZMQ 5556）。机器人会真的移动 —— 急停在手！</p>
+
+      <div class="card proc-card">
+        <h3>① 驾驶后端 <span class="proc-pill" id="pill-gui_drive">未运行</span></h3>
+        <div class="row">
+          <button class="btn" onclick="startProc('gui_drive')">启动驾驶后端</button>
+          <button class="btn" onclick="stopProc('gui_drive')">停止</button>
+        </div>
+        <pre class="logpane small collapsed" id="log-gui_drive" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+
+      <div class="card danger-card">
+        <h3>② 策略 + 步态</h3>
+        <div class="row">
+          <button class="btn danger-btn" onclick="drivePolicy('start')">启动策略</button>
+          <button class="btn" onclick="drivePolicy('stop')">停止策略</button>
+          <label>步态/姿势：
+            <select id="drive-gait" onchange="driveSend()">
+              <option value="2" selected>Walk 走</option>
+              <option value="1">Slow Walk 慢走</option>
+              <option value="3">Run 跑</option>
+              <option value="4">Squat 蹲</option>
+              <option value="6">Kneel 跪</option>
+              <option value="7">Lying 趴</option>
+              <option value="8">Crawl 爬</option>
+              <option value="14">Elbow Crawl 肘爬</option>
+            </select>
+          </label>
+          <label>速度：<input type="range" id="drive-speed" min="-1" max="3" step="0.1" value="-1" oninput="driveSend()"><span id="drive-speed-val">默认</span></label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>③ 移动（按住生效，松开停）</h3>
+        <div class="dpad">
+          <button class="btn dbtn" onmousedown="driveHold('fwd',1)" onmouseup="driveRelease('fwd')" onmouseleave="driveRelease('fwd')" ontouchstart="driveHold('fwd',1)" ontouchend="driveRelease('fwd')" style="grid-area:up">▲ 前进</button>
+          <button class="btn dbtn" onmousedown="driveHold('strafe',1)" onmouseup="driveRelease('strafe')" onmouseleave="driveRelease('strafe')" ontouchstart="driveHold('strafe',1)" ontouchend="driveRelease('strafe')" style="grid-area:left">◀ 左移</button>
+          <button class="btn dbtn" onmousedown="driveHold('strafe',-1)" onmouseup="driveRelease('strafe')" onmouseleave="driveRelease('strafe')" ontouchstart="driveHold('strafe',-1)" ontouchend="driveRelease('strafe')" style="grid-area:right">右移 ▶</button>
+          <button class="btn dbtn" onmousedown="driveHold('fwd',-1)" onmouseup="driveRelease('fwd')" onmouseleave="driveRelease('fwd')" ontouchstart="driveHold('fwd',-1)" ontouchend="driveRelease('fwd')" style="grid-area:down">▼ 后退</button>
+          <span style="grid-area:mid" class="dmid" id="drive-readout">停</span>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn dbtn" onmousedown="driveHold('turn',1)" onmouseup="driveRelease('turn')" onmouseleave="driveRelease('turn')" ontouchstart="driveHold('turn',1)" ontouchend="driveRelease('turn')">↺ 左转</button>
+          <button class="btn dbtn" onmousedown="driveHold('turn',-1)" onmouseup="driveRelease('turn')" onmouseleave="driveRelease('turn')" ontouchstart="driveHold('turn',-1)" ontouchend="driveRelease('turn')">右转 ↻</button>
+          <button class="btn" onclick="driveAllStop()">全停（移动归零）</button>
+        </div>
+        <p class="warn" style="margin-top:6px">键盘：聚焦本页后 <code>W/S</code> 前后、<code>A/D</code> 左右移、<code>Q/E</code> 转向（按住）。</p>
       </div>
     </section>
   </main>

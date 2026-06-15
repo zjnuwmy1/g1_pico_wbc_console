@@ -336,6 +336,11 @@ class ProcessManager:
                 [str(config.VENV_PY), str(config.BRAINCO_BRIDGE_PY), iface],
                 cwd=config.REPO_ROOT, profile="py",
             )
+        if name == "gui_drive":
+            return ProcSpec(
+                "gui_drive", [str(config.VENV_PY), str(config.GUI_DRIVE_PY)],
+                cwd=config.REPO_ROOT, profile="py",
+            )
         if name == "install_pico":
             return ProcSpec(
                 "install_pico", ["bash", str(config.INSTALL_PICO_SH)],
@@ -348,7 +353,7 @@ class ProcessManager:
             )
         raise KeyError(name)
 
-    KNOWN = ("sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "install_pico", "pc_service")
+    KNOWN = ("sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "install_pico", "pc_service")
 
     # ── API ──────────────────────────────────────────────────────────────────
     def get(self, name: str) -> Proc | None:
@@ -367,6 +372,13 @@ class ProcessManager:
             p = self._procs.get("deploy_real")
             if p and p.alive():
                 return {"ok": False, "error": "deploy_real 还在运行，先优雅停止它"}
+        # gui_drive and pico_streamer both bind ZMQ 5556 -> mutually exclusive.
+        if name in ("gui_drive", "pico_streamer"):
+            other = "pico_streamer" if name == "gui_drive" else "gui_drive"
+            p = self._procs.get(other)
+            if p and p.alive():
+                return {"ok": False,
+                        "error": f"先停止 {other} — 它和 {name} 都占用 ZMQ 5556，不能同时跑"}
         with self._lock:
             existing = self._procs.get(name)
             if existing and existing.alive():

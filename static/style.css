@@ -93,3 +93,12 @@ input[type="text"] { background: #0b0e13; border: 1px solid var(--line); color: 
 .pill.active-mode { background: #3da9fc26; color: var(--acc); font-weight: 600; }
 .pill.pose-mode { background: #2ecc7126; color: var(--ok); font-weight: 600; }
 #conn-dot { margin-left: auto; color: var(--fail); } #conn-dot.on { color: var(--ok); }
+
+/* manual-drive D-pad (step 6) */
+.dpad { display: grid; gap: 8px; width: 260px;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-areas: ".  up   ." "left mid right" ".  down ."; }
+.dbtn { user-select: none; -webkit-user-select: none; touch-action: none; font-weight: 600; }
+.dbtn:active { background: var(--acc); color: #06121f; }
+.dmid { display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--muted); border: 1px dashed #38465a; border-radius: 8px; }

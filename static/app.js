@@ -33,7 +33,7 @@ function locoModeLabel(n, name) {
   return zh ? `${n} ${zh}` : `${n} ${name || ""}`;
 }
 const logSeqs = {};            // proc name -> last seq
-const LOG_PROCS = ["install_pico", "pc_service", "sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand"];
+const LOG_PROCS = ["install_pico", "pc_service", "sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive"];
 // pico_streamer log is mirrored into two panes (step 4 + step 5)
 const LOG_PANES = {
   install_pico: ["log-install_pico"], pc_service: ["log-pc_service"],
@@ -41,6 +41,7 @@ const LOG_PANES = {
   deploy_real: ["log-deploy_real"],
   pico_streamer: ["log-pico_streamer", "log-pico_streamer-5"],
   brainco_hand: ["log-brainco_hand"],
+  gui_drive: ["log-gui_drive"],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -84,6 +85,36 @@ async function startProc(name) {
 }
 
 async function stopProc(name) { await api(`/api/procs/${name}/stop`, {}); poll(); }
+
+/* ── manual drive (no PICO): relay intent to gui_drive via /api/drive ── */
+const _drive = { fwd: 0, strafe: 0, turn: 0 };
+function driveSend(extra) {
+  const gait = parseInt($("drive-gait").value, 10);
+  const sp = parseFloat($("drive-speed").value);
+  $("drive-speed-val").textContent = sp < 0 ? "默认" : sp.toFixed(1);
+  const body = Object.assign({ gait, speed: sp, fwd: _drive.fwd, strafe: _drive.strafe, turn: _drive.turn }, extra || {});
+  const r = $("drive-readout");
+  if (r) r.textContent = (_drive.fwd || _drive.strafe || _drive.turn)
+    ? `前${_drive.fwd} 移${_drive.strafe} 转${_drive.turn}` : "停";
+  api("/api/drive", body);
+}
+function drivePolicy(p) {
+  if (p === "start" && !confirm("启动策略 = 机器人开始被控制（Init Done 后会动）。确认场地清空、急停在手？")) return;
+  driveSend({ policy: p });
+}
+function driveHold(axis, v) { _drive[axis] = v; driveSend(); }
+function driveRelease(axis) { if (_drive[axis] !== 0) { _drive[axis] = 0; driveSend(); } }
+function driveAllStop() { _drive.fwd = _drive.strafe = _drive.turn = 0; driveSend(); }
+const _driveKeys = { w: ["fwd", 1], s: ["fwd", -1], a: ["strafe", 1], d: ["strafe", -1], q: ["turn", 1], e: ["turn", -1] };
+document.addEventListener("keydown", (ev) => {
+  if (document.getElementById("panel-6")?.classList.contains("active") &&
+      _driveKeys[ev.key] && !ev.repeat) {
+    const [ax, v] = _driveKeys[ev.key]; _drive[ax] = v; driveSend();
+  }
+});
+document.addEventListener("keyup", (ev) => {
+  if (_driveKeys[ev.key]) { const [ax] = _driveKeys[ev.key]; if (_drive[ax] !== 0) { _drive[ax] = 0; driveSend(); } }
+});
 
 /* ── real G1 high-level mode switch (release for lowcmd / re-select) ── */
 async function g1Mode(action, name) {
@@ -212,6 +243,7 @@ function renderState(s) {
   pillFor("pico_streamer", procs, "pill-pico_streamer");
   pillFor("pico_streamer", procs, "pill-pico_streamer-5");
   pillFor("brainco_hand", procs, "pill-brainco_hand");
+  pillFor("gui_drive", procs, "pill-gui_drive");
   // streamer 退出时 xrt SDK 析构必崩(rc=-6/SIGABRT)，且 A+B+X+Y 急停也会主动退出——
   // 都属正常，不显示成「异常退出」。
   const ps = procs["pico_streamer"];

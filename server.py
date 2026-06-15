@@ -293,6 +293,13 @@ class Handler(BaseHTTPRequestHandler):
             res = PM.set_hand_mode(body.get("mode", ""))
             self._json(200 if res.get("ok") else 409, res)
             return
+        if u.path == "/api/drive":
+            # relay manual-drive intent to the gui_drive process via its stdin
+            allowed = ("policy", "gait", "fwd", "strafe", "turn", "speed")
+            intent = {k: body[k] for k in allowed if k in body}
+            line = (json.dumps(intent) + "\n").encode()
+            self._json(200, PM.write_stdin("gui_drive", line))
+            return
         if u.path == "/api/g1/mode":
             action = body.get("action", "check")
             if action not in ("check", "release", "select"):

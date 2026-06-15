@@ -33,6 +33,10 @@ G1_MODE_PY = CONSOLE_ROOT / "helpers" / "g1_mode.py"
 # Real BrainCo hand bridge: streamer grasp -> rt/brainco/{l,r}/cmd (deploy only
 # drives the body; the real hands live on rt/brainco). Needs PC2 brainco server.
 BRAINCO_BRIDGE_PY = CONSOLE_ROOT / "helpers" / "brainco_hand_bridge.py"
+# GUI manual drive: replaces the streamer on 5556, drives the deploy's planner
+# (gait + move + facing) from console buttons — no PICO. Mutually exclusive with
+# pico_streamer (both bind ZMQ 5556).
+GUI_DRIVE_PY = CONSOLE_ROOT / "helpers" / "gui_drive.py"
 
 STATE_FILE = CONSOLE_ROOT / "state" / "state.json"
 LOGS_DIR = CONSOLE_ROOT / "logs"

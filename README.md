@@ -64,6 +64,18 @@ gear_sonic deploy 的手命令发 `rt/dex3`，但**真机 BrainCo Revo2 手听 `
 PC2 上需先跑 BrainCo 服务端：`~/brainco_hand_service/bin/brainco_hand_server`（`dialout` 组免 sudo），
 仓库外脚本 `~/start_brainco.sh` 按 PID 杀旧实例 + setsid 起新（开机后左手第一次扫常失败，跑一两次即双手绑定）。
 
+## 手动驾驶页（步骤 6，无需 PICO · `helpers/gui_drive.py`）
+
+不戴头显，直接用 GUI 按钮驱动机器人。原理：**替代 streamer**，`gui_drive.py` 绑 ZMQ 5556 PUB，
+import 上游 `build_command_message` / `build_planner_message`，把按钮意图发成 deploy 期待的
+**PLANNER（行走规划）**消息 —— 只需 gait + 移动向量 + facing，不依赖身体追踪。
+
+- 页面：①启动驾驶后端 ②启动/停止策略 + 步态下拉（Walk/Run/Squat/Kneel/Lying/Crawl/…）+ 速度滑条
+  ③移动 D-pad（前后/左右移，**按住生效松开停**）+ 左转/右转；键盘 `W/S/A/D/Q/E`。
+- `/api/drive` 把意图 JSON 写进 gui_drive 的 stdin；20Hz 持续发 planner。
+- **与 PICO 数据流互斥**（都绑 5556，GUI 已强制）。真机用前同样要**释放高层模式**、deploy 在跑。
+- 急停照旧走 deploy `o`（footer 红钮 / 终端 `o`）。
+
 ## 仿真 Revo2 手 overlay（`overlay/`）
 
 把 sim 里的 Unitree Dex3 三指手换成 **BrainCo Revo2 六指手**，用于手指 sim-to-real，
@@ -97,6 +109,7 @@ PC2 上需先跑 BrainCo 服务端：`~/brainco_hand_service/bin/brainco_hand_se
 | `helpers/brainco_hand_bridge.py` | 真机 BrainCo Revo2 手桥（含限速 + 失速过流保护 + stale 自动张开） |
 | `overlay/build_revo2_model.py` | 生成 Revo2 手合并 MJCF（不碰上游） |
 | `overlay/run_sim_loop_revo2.py` | 带 Revo2 手 overlay 的 sim 启动器 |
+| `helpers/gui_drive.py` | 手动驾驶后端：GUI 按钮 → deploy planner（前后/转向/换步态），无需 PICO |
 | `static/` | 中文向导 UI |
 | `logs/<时间戳>/<进程>.log` | 每次运行的完整进程日志（.gitignore） |
 
