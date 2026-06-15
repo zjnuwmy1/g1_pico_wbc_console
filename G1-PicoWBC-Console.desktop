@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=G1 PICO WBC Console
+Comment=PICO 4 Ultra whole-body teleop wizard for Unitree G1 (GR00T-WholeBodyControl)
+Exec=bash -c '~/Desktop/g1_pico_wbc_console/start_console.sh & sleep 1; xdg-open http://127.0.0.1:8090'
+Terminal=true
+Icon=applications-robotics
+Categories=Development;

@@ -1,0 +1,384 @@
+#!/usr/bin/env python3
+"""G1 PICO Whole-Body Teleop Wizard Console — zero-dependency stdlib server.
+
+Run:  python3 server.py [--port 8090]
+"""
+from __future__ import annotations
+
+import argparse
+import atexit
+import json
+import mimetypes
+import secrets
+import signal
+import subprocess
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+
+import checks
+import config
+from procman import ProcessManager
+
+PM = ProcessManager()
+
+# ── wizard step persistence ──────────────────────────────────────────────────
+_state_lock = threading.Lock()
+
+
+def _load_state() -> dict:
+    try:
+        return json.loads(config.STATE_FILE.read_text())
+    except (OSError, ValueError):
+        return {"steps": {}}
+
+
+def _save_state(st: dict) -> None:
+    config.STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    config.STATE_FILE.write_text(json.dumps(st, ensure_ascii=False, indent=2))
+
+
+WIZARD = _load_state()
+# Step 5's safety confirmation is session-only by design (user safety rule):
+WIZARD.get("steps", {}).pop("5", None)
+
+# ── safety token (real-robot gate) ───────────────────────────────────────────
+_safety = {"token": None, "expires": 0.0}
+SAFETY_CHECKLIST_KEYS = [
+    "sim_rehearsed",      # ① sim 流程已演练
+    "robot_secured",      # ② 机器人已悬挂或处于空旷场地
+    "debug_mode",         # ③ 已进入 debug 模式，原生控制已脱离
+    "estop_person",       # ④ 已指定急停员
+]
+
+
+def mint_safety_token(body: dict) -> tuple[int, dict]:
+    cl = body.get("checklist") or {}
+    missing = [k for k in SAFETY_CHECKLIST_KEYS if not cl.get(k)]
+    if missing:
+        return 400, {"ok": False, "error": f"checklist 未全部确认: {missing}"}
+    typed = (body.get("typed") or "").strip()
+    if typed not in config.SAFETY_TYPED_PHRASES:
+        return 400, {"ok": False, "error": "请输入「确认姿态」以确认机器人当前姿态安全"}
+    # auto checks
+    if PM.any_alive(("sim_loop", "deploy_sim")):
+        return 400, {"ok": False, "error": "sim 进程仍在运行，先全部停止"}
+    if checks.find_real_robot_interface() is None:
+        return 400, {"ok": False, "error": "未检测到 192.168.123.x 机器人网卡"}
+    token = secrets.token_urlsafe(16)
+    _safety["token"] = token
+    _safety["expires"] = time.time() + config.SAFETY_TOKEN_TTL_S
+    return 200, {"ok": True, "safety_token": token,
+                 "expires_in": config.SAFETY_TOKEN_TTL_S}
+
+
+def consume_safety_token(token: str | None) -> str | None:
+    """Return error string, or None if the token is valid (single-use)."""
+    if not token or token != _safety["token"]:
+        return "缺少或错误的 safety_token —— 请先完成安全确认"
+    if time.time() > _safety["expires"]:
+        return "safety_token 已过期（120s），请重新确认"
+    _safety["token"] = None  # single-use
+    return None
+
+
+# ── pico probe ───────────────────────────────────────────────────────────────
+_probe = {"running": False, "result": None, "ts": 0.0}
+
+
+def run_pico_probe() -> dict:
+    if not config.VENV_PY.is_file():
+        return {"ok": False, "error": ".venv_teleop 不存在，先完成步骤 2"}
+    if _probe["running"]:
+        return {"ok": False, "error": "探测已在进行中"}
+    _probe["running"] = True
+
+    def worker():
+        try:
+            p = subprocess.run(
+                [str(config.VENV_PY), str(config.PROBE_PY)],
+                capture_output=True, text=True, timeout=25,
+                cwd=str(config.REPO_ROOT),
+            )
+            line = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else "{}"
+            try:
+                _probe["result"] = json.loads(line)
+            except ValueError:
+                _probe["result"] = {"error": (p.stdout + p.stderr)[-400:]}
+        except subprocess.TimeoutExpired:
+            _probe["result"] = {"error": "探测超时（25s）"}
+        finally:
+            _probe["ts"] = time.time()
+            _probe["running"] = False
+
+    threading.Thread(target=worker, daemon=True).start()
+    return {"ok": True, "note": "探测已启动，结果在 /api/state 的 pico 字段"}
+
+
+# ── real G1 high-level mode switch ───────────────────────────────────────────
+def run_g1_mode(action: str, name: str = "") -> dict:
+    if not config.VENV_PY.is_file():
+        return {"ok": False, "error": ".venv_teleop 不存在"}
+    robot = checks.find_real_robot_interface()
+    if robot is None:
+        return {"ok": False, "error": "未检测到机器人网接口(192.168.123.x)，检查机器人网/上电"}
+    cmd = [str(config.VENV_PY), str(config.G1_MODE_PY), robot[0], action]
+    if action == "select" and name:
+        cmd.append(name)
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
+                           cwd=str(config.REPO_ROOT))
+        line = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else "{}"
+        try:
+            return json.loads(line)
+        except ValueError:
+            return {"ok": False, "error": (p.stdout + p.stderr)[-400:]}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "G1 模式操作超时(30s)，机器人主控在跑吗?"}
+
+
+# ── checks cache ─────────────────────────────────────────────────────────────
+_checks_cache: dict[str, list] = {}
+
+
+def run_checks(scope: str) -> list[dict]:
+    result = checks.run_all_checks(scope)
+    _checks_cache[scope] = result
+    return result
+
+
+# ── consolidated state ───────────────────────────────────────────────────────
+
+def teleop_state() -> dict:
+    out = {"stream_mode": None, "loco_mode": None, "loco_mode_name": None,
+           "deploy_control": False, "deploy_ready": False, "estop_ack": False}
+    s = PM.get("pico_streamer")
+    if s:
+        sm = s.parsed.get("stream_mode")
+        if isinstance(sm, tuple) and len(sm) == 2:
+            out["stream_mode"] = sm[1]
+        lm = s.parsed.get("loco_mode")
+        if isinstance(lm, tuple) and len(lm) == 2:
+            out["loco_mode"] = int(lm[0])
+            out["loco_mode_name"] = lm[1]
+        if not s.alive() and s.returncode is not None:
+            out["stream_mode"] = "OFF"
+    for name in ("deploy_real", "deploy_sim"):
+        d = PM.get(name)
+        if d and d.alive():
+            out["deploy_ready"] = d.status == "ready" or "ready_marker" in d.parsed
+            out["deploy_control"] = "control" in d.parsed
+            out["estop_ack"] = "estop_ack" in d.parsed
+            out["active_deploy"] = name
+            break
+    return out
+
+
+def _pc_service_alive() -> bool:
+    """The runService.sh launcher forks the real daemon and exits rc=0, so the
+    managed-proc status is misleading. Check the actual PC Service socket."""
+    import socket as _s
+    sk = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+    sk.settimeout(0.2)
+    try:
+        return sk.connect_ex(("127.0.0.1", 60061)) == 0
+    finally:
+        sk.close()
+
+
+def api_state() -> dict:
+    robot = checks.find_real_robot_interface()
+    return {
+        "steps": WIZARD.get("steps", {}),
+        "procs": PM.snapshot(),
+        "teleop": teleop_state(),
+        "pico": {"running": _probe["running"], "result": _probe["result"], "ts": _probe["ts"]},
+        "pc_service_alive": _pc_service_alive(),
+        "hand_mode": PM.hand_mode,
+        "checks_cache": _checks_cache,
+        "ips": {
+            "wifi": checks.wifi_lan_ips(),
+            "all": checks.lan_ips(),
+            "headset_host": checks.headset_host(),
+            "robot_iface": list(robot) if robot else None,
+            "robot_prefix": config.ROBOT_SUBNET_PREFIX,
+        },
+        "safety": {"armed": bool(_safety["token"]) and time.time() < _safety["expires"],
+                   "ttl": max(0, int(_safety["expires"] - time.time())) if _safety["token"] else 0},
+        "config": {
+            "deb_url": config.DEB_URL_2404,
+            "apk_url": config.APK_URL,
+            "gui_port": config.GUI_PORT,
+        },
+        "now": time.time(),
+    }
+
+
+# ── HTTP handler ─────────────────────────────────────────────────────────────
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "G1PicoWBCConsole/1.0"
+
+    def log_message(self, fmt, *args):  # quiet
+        pass
+
+    def _json(self, code: int, obj: dict) -> None:
+        data = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _static(self, rel: str) -> None:
+        if rel in ("", "/"):
+            rel = "index.html"
+        target = (config.STATIC_DIR / rel.lstrip("/")).resolve()
+        if not str(target).startswith(str(config.STATIC_DIR.resolve())) or not target.is_file():
+            self._json(404, {"error": "not found"})
+            return
+        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        # Text assets are UTF-8 (Chinese UI). Without an explicit charset the
+        # HTTP header wins over <meta charset> in some browsers → mojibake.
+        if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
+            ctype += "; charset=utf-8"
+        data = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _body(self) -> dict:
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            return json.loads(self.rfile.read(n).decode()) if n else {}
+        except (ValueError, OSError):
+            return {}
+
+    # ── routes ───────────────────────────────────────────────────────────────
+    def do_GET(self):
+        u = urlparse(self.path)
+        if u.path == "/api/state":
+            self._json(200, api_state())
+        elif u.path.startswith("/api/logs/"):
+            name = u.path.rsplit("/", 1)[-1]
+            since = int(parse_qs(u.query).get("since", ["0"])[0])
+            self._json(200, PM.logs_since(name, since))
+        else:
+            self._static(u.path)
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        body = self._body()
+        parts = [p for p in u.path.split("/") if p]
+
+        if u.path == "/api/estop":
+            self._json(200, PM.estop())
+            return
+        if u.path == "/api/checks/run":
+            self._json(200, {"ok": True, "checks": run_checks(body.get("scope", "env"))})
+            return
+        if u.path == "/api/pico/probe":
+            self._json(200, run_pico_probe())
+            return
+        if u.path == "/api/safety/confirm":
+            code, obj = mint_safety_token(body)
+            self._json(code, obj)
+            return
+        if u.path == "/api/hand_mode":
+            res = PM.set_hand_mode(body.get("mode", ""))
+            self._json(200 if res.get("ok") else 409, res)
+            return
+        if u.path == "/api/g1/mode":
+            action = body.get("action", "check")
+            if action not in ("check", "release", "select"):
+                self._json(400, {"ok": False, "error": "bad action"})
+                return
+            # release removes the robot's balance control (it goes limp) — gate it.
+            if action == "release":
+                if not body.get("confirm"):
+                    self._json(400, {"ok": False, "error": "release 需要 confirm（机器人会变软，确认吊架）"})
+                    return
+                if PM.any_alive(("deploy_real", "deploy_sim")):
+                    self._json(409, {"ok": False, "error": "先停掉 deploy 再释放模式（避免机器人猛跳）"})
+                    return
+            self._json(200, run_g1_mode(action, body.get("name", "")))
+            return
+        if u.path == "/api/deploy/key":
+            name = body.get("name", "")
+            key = (body.get("key") or "")[:1]
+            if name not in ("deploy_sim", "deploy_real") or not key:
+                self._json(400, {"ok": False, "error": "bad name/key"})
+                return
+            if key.lower() == "o":  # E-stop key goes through the estop path
+                self._json(200, PM.estop())
+                return
+            self._json(200, PM.write_stdin(name, key.encode()))
+            return
+
+        # /api/procs/<name>/start|stop
+        if len(parts) == 4 and parts[:2] == ["api", "procs"]:
+            name, action = parts[2], parts[3]
+            if action == "start":
+                if name == "deploy_real":
+                    err = consume_safety_token(body.get("safety_token"))
+                    if err:
+                        self._json(403, {"ok": False, "error": err})
+                        return
+                self._json(200, PM.start(name, vis=bool(body.get("vis"))))
+                return
+            if action == "stop":
+                self._json(200, PM.stop(name))
+                return
+
+        # /api/steps/<n>/complete|reopen
+        if len(parts) == 4 and parts[:2] == ["api", "steps"]:
+            n, action = parts[2], parts[3]
+            if n == "5" and action == "complete":
+                self._json(400, {"ok": False, "error": "步骤5不可标记完成（每次都需安全确认）"})
+                return
+            with _state_lock:
+                steps = WIZARD.setdefault("steps", {})
+                if action == "complete":
+                    steps[n] = {"done": True, "ts": time.time()}
+                elif action == "reopen":
+                    steps.pop(n, None)
+                _save_state(WIZARD)
+            self._json(200, {"ok": True, "steps": WIZARD["steps"]})
+            return
+
+        self._json(404, {"error": "not found"})
+
+
+# ── shutdown ─────────────────────────────────────────────────────────────────
+
+def _graceful_exit(*_):
+    print("\n[console] shutting down: stopping managed processes gracefully …")
+    PM.shutdown_all()
+    sys.exit(0)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--port", type=int, default=config.GUI_PORT)
+    ap.add_argument("--host", default="127.0.0.1")
+    args = ap.parse_args()
+
+    atexit.register(PM.shutdown_all)
+    signal.signal(signal.SIGTERM, _graceful_exit)
+    signal.signal(signal.SIGINT, _graceful_exit)
+
+    # warm the env checks cache so first page load isn't empty
+    threading.Thread(target=run_checks, args=("env",), daemon=True).start()
+
+    srv = ThreadingHTTPServer((args.host, args.port), Handler)
+    print(f"[console] G1 PICO WBC Console → http://{args.host}:{args.port}")
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

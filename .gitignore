@@ -1,0 +1,10 @@
+# runtime logs (per-run process logs, can be 100s of MB)
+logs/
+# wizard step progress (machine state, not source)
+state/
+# python cache
+__pycache__/
+*.pyc
+# generated Revo2 overlay model + symlinked upstream meshes (machine-specific
+# absolute paths). Regenerate with: python overlay/build_revo2_model.py
+overlay/g1_revo2/

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>G1 · PICO 全身遥操作控制台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>G1 × PICO 4 Ultra 全身遥操作向导 <span class="sub">GR00T-WholeBodyControl / GEAR-SONIC</span></h1>
+</header>
+
+<div class="layout">
+  <!-- ── stepper ── -->
+  <nav id="stepper">
+    <div class="step-tab" data-step="1"><span class="num">1</span>环境检查</div>
+    <div class="step-tab" data-step="2"><span class="num">2</span>安装缺失组件</div>
+    <div class="step-tab" data-step="3"><span class="num">3</span>PICO 连接</div>
+    <div class="step-tab" data-step="4"><span class="num">4</span>仿真遥操作</div>
+    <div class="step-tab danger" data-step="5"><span class="num">5</span>真机遥操作</div>
+  </nav>
+
+  <main>
+    <!-- ── STEP 1 ── -->
+    <section class="step-panel" id="panel-1">
+      <h2>步骤 1 · 环境检查</h2>
+      <p class="hint">检查仓库、模型、编译产物、Python 环境与网络。红色卡片需先处理（多数可在步骤 2 解决）。</p>
+      <button class="btn" onclick="runChecks('env')">重新检查</button>
+      <div class="check-grid" id="checks-env"></div>
+      <div class="step-actions">
+        <button class="btn primary" id="complete-1" onclick="completeStep(1)">本步完成，进入步骤 2 →</button>
+      </div>
+    </section>
+
+    <!-- ── STEP 2 ── -->
+    <section class="step-panel" id="panel-2">
+      <h2>步骤 2 · 安装缺失组件</h2>
+
+      <div class="card">
+        <h3>2a · 安装 .venv_teleop（PICO 遥操作 Python 环境）</h3>
+        <p class="hint">运行 <code>install_scripts/install_pico.sh</code>，耗时数分钟，会<strong>重建</strong>已有 venv。</p>
+        <div class="row">
+          <button class="btn" id="btn-install-pico" onclick="startProc('install_pico')">开始安装</button>
+          <button class="btn" onclick="stopProc('install_pico')">中止</button>
+          <span class="proc-pill" id="pill-install_pico">未运行</span>
+        </div>
+        <pre class="logpane" id="log-install_pico"></pre>
+      </div>
+
+      <div class="card">
+        <h3>2b · 安装 XRoboToolkit PC Service（需要 sudo，请在终端执行）</h3>
+        <p class="hint">GUI 无法替你输入 sudo 密码，请复制下面命令到终端运行：</p>
+        <pre class="cmdblock" id="deb-cmd"></pre>
+        <button class="btn" onclick="copyText('deb-cmd')">复制命令</button>
+        <button class="btn" onclick="runChecks('env')">重新检测</button>
+        <span id="pcservice-status"></span>
+      </div>
+
+      <div class="step-actions">
+        <button class="btn primary" id="complete-2" onclick="completeStep(2)">本步完成，进入步骤 3 →</button>
+      </div>
+    </section>
+
+    <!-- ── STEP 3 ── -->
+    <section class="step-panel" id="panel-3">
+      <h2>步骤 3 · PICO 连接</h2>
+
+      <div class="card highlight">
+        <h3>在头显 XRoboToolkit app 中填入本机 IP：</h3>
+        <div class="big-ip" id="wifi-ip">…</div>
+        <p class="warn" id="wifi-ip-hint" style="margin:6px 0"></p>
+        <p class="hint">头显与工作站必须在同一 WiFi。连接成功后 app 中 Status 显示 <b>WORKING</b>。</p>
+      </div>
+
+      <div class="card">
+        <h3>PC Service</h3>
+        <div class="row">
+          <button class="btn" onclick="startProc('pc_service')">启动 PC Service</button>
+          <span class="proc-pill" id="pill-pc_service">未运行</span>
+        </div>
+        <pre class="logpane small" id="log-pc_service"></pre>
+      </div>
+
+      <div class="card">
+        <h3>头显侧 checklist（手动确认）</h3>
+        <ul class="checklist" id="headset-checklist">
+          <li><label><input type="checkbox"> 已安装 <a id="apk-link" href="#" target="_blank">XRoboToolkit-PICO-1.1.1.apk</a>（PICO 浏览器下载安装，应用在「未知来源」里）</label></li>
+          <li><label><input type="checkbox"> 设置 → Developer 模式开启，Safeguard 关闭</label></li>
+          <li><label><input type="checkbox"> 2 个 Motion Tracker 已配对（绑脚踝、灯朝上、裤腿收紧）</label></li>
+          <li><label><input type="checkbox"> Tracker 校准完成（两个序列：直立贴身 → 低头看脚）</label></li>
+          <li><label><input type="checkbox"> app 内：Tracking 勾选 Head + Controller；Data/Control 选 Send；Motion Tracker 选 Full body</label></li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>连接探测</h3>
+        <div class="row">
+          <button class="btn" onclick="picoProbe()">探测 PICO 连接</button>
+          <span id="probe-status" class="proc-pill">未探测</span>
+        </div>
+        <div id="probe-detail" class="hint"></div>
+      </div>
+
+      <div class="step-actions">
+        <button class="btn primary" id="complete-3" onclick="completeStep(3)">本步完成，进入步骤 4 →</button>
+      </div>
+    </section>
+
+    <!-- ── STEP 4 ── -->
+    <section class="step-panel" id="panel-4">
+      <h2>步骤 4 · 仿真遥操作（MuJoCo）</h2>
+      <p class="hint">按顺序启动三个进程。上一个就绪后下一个按钮才会解锁。</p>
+
+      <div class="card proc-card" id="card-sim_loop">
+        <h3>① MuJoCo 仿真 <span class="proc-pill" id="pill-sim_loop">未运行</span></h3>
+        <div class="row">
+          <button class="btn" id="btn-sim_loop" onclick="startProc('sim_loop')">启动</button>
+          <button class="btn" onclick="stopProc('sim_loop')">停止</button>
+        </div>
+        <pre class="logpane small collapsed" id="log-sim_loop" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+
+      <div class="card proc-card" id="card-deploy_sim">
+        <h3>② C++ 策略部署 (sim) <span class="proc-pill" id="pill-deploy_sim">未运行</span></h3>
+        <div class="row">
+          <button class="btn" id="btn-deploy_sim" onclick="startProc('deploy_sim')" disabled>启动</button>
+          <button class="btn" onclick="stopProc('deploy_sim')">优雅停止</button>
+          <span class="hint">就绪标志：<code>Init Done</code></span>
+        </div>
+        <pre class="logpane small collapsed" id="log-deploy_sim" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+
+      <div class="card proc-card" id="card-pico_streamer">
+        <h3>③ PICO 数据流 <span class="proc-pill" id="pill-pico_streamer">未运行</span></h3>
+        <div class="row">
+          <label><input type="checkbox" id="vis-toggle" checked> 可视化窗口（--vis_vr3pt --vis_smpl）</label>
+          <button class="btn" id="btn-pico_streamer" onclick="startProc('pico_streamer')" disabled>启动</button>
+          <button class="btn" onclick="stopProc('pico_streamer')">停止</button>
+        </div>
+        <p class="hint">⚠ 手柄 A+B+X+Y 急停后此进程<strong>主动退出属正常现象</strong>，重新启动即可。</p>
+        <pre class="logpane small collapsed" id="log-pico_streamer" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+
+      <div class="card">
+        <h3>手柄操作速查</h3>
+        <div class="cols">
+          <div>
+            <h4>启动流程</h4>
+            <ol>
+              <li>摆<strong>校准姿势</strong>：站直、双脚并拢、大臂自然下垂、小臂前屈 90°（L 形）、掌心相对</li>
+              <li><kbd>A+B+X+Y</kbd> 同按 → 启动策略 + 全身校准（机器人开始自平衡）</li>
+              <li>先把手臂对齐机器人当前姿态，再 <kbd>A+X</kbd> → 进入<b>全身跟随 (POSE)</b></li>
+            </ol>
+            <h4>急停</h4>
+            <ul>
+              <li>手柄：<kbd>A+B+X+Y</kbd></li>
+              <li>本页：底部红色急停按钮（向部署进程发官方急停字符 <code>o</code>）</li>
+            </ul>
+          </div>
+          <div>
+            <h4>模式切换</h4>
+            <table class="keymap">
+              <tr><td><kbd>A+X</kbd></td><td>行走规划 (PLANNER) ↔ 全身跟随 (POSE)</td></tr>
+              <tr><td><kbd>B+Y</kbd></td><td>全身跟随 (POSE) ↔ 上身冻结+行走 (FROZEN_UPPER)</td></tr>
+              <tr><td><kbd>左摇杆按下</kbd></td><td>进/出三点跟随 (VR_3PT)（头+双手控上半身，先对齐手臂！）</td></tr>
+              <tr><td><kbd>A+B</kbd> / <kbd>X+Y</kbd></td><td>下/上一个步态（走/跑/蹲/跪/爬/拳击/跳…）</td></tr>
+              <tr><td>左摇杆</td><td>移动方向</td></tr>
+              <tr><td>右摇杆横向</td><td>转向</td></tr>
+              <tr><td>扳机</td><td>对应手抓握</td></tr>
+            </table>
+          </div>
+        </div>
+        <p class="warn">⚠ 切入全身跟随 (POSE) / 三点跟随 (VR_3PT) 前<strong>必须先让身体对齐机器人当前姿态</strong>，否则机器人会瞬间猛动！</p>
+      </div>
+
+      <div class="step-actions">
+        <label><input type="checkbox" id="estop-mastered"> 我已在 sim 中演练并熟练掌握急停</label>
+        <button class="btn primary" id="complete-4" onclick="completeStep(4)" disabled>本步完成，进入步骤 5 →</button>
+      </div>
+    </section>
+
+    <!-- ── STEP 5 ── -->
+    <section class="step-panel" id="panel-5">
+      <h2 class="danger-text">步骤 5 · 真机遥操作</h2>
+      <p class="warn">⚠ 部署进程打出 <code>Init Done</code> 后约 3 秒，机器人就会缓动到默认站姿 —— 安全确认在<strong>启动部署前</strong>，不是开始遥操作前。</p>
+
+      <div class="card danger-card" id="safety-gate">
+        <h3>安全确认门（每次进入真机模式都必须重新确认，不会被记住）</h3>
+        <ul class="checklist">
+          <li><label><input type="checkbox" class="safety-cb" data-key="sim_rehearsed"> ① 仿真流程已完整演练，包括急停</label></li>
+          <li><label><input type="checkbox" class="safety-cb" data-key="robot_secured"> ② 机器人已悬挂 / 处于空旷无人场地，<strong>当前姿态已目视确认</strong></label></li>
+          <li><label><input type="checkbox" class="safety-cb" data-key="debug_mode"> ③ 已按 Unitree 流程进入调试模式（L2+R2），原生运控已脱离</label></li>
+          <li><label><input type="checkbox" class="safety-cb" data-key="estop_person"> ④ 已指定急停员（手柄 A+B+X+Y / 本页急停 / 部署终端按 O）</label></li>
+          <li>⑤ sim 进程全部停止：<span id="auto-sim-clear">检测中…</span>（自动）</li>
+          <li>⑥ 机器人网卡 192.168.123.x 在线：<span id="auto-robot-net">检测中…</span>（自动）</li>
+        </ul>
+        <div class="row">
+          <input type="text" id="safety-typed" placeholder="输入「确认姿态」">
+          <button class="btn danger-btn" onclick="confirmSafety()">确认并解锁（120 秒）</button>
+          <span id="safety-status" class="proc-pill">未解锁</span>
+        </div>
+      </div>
+
+      <div class="card danger-card">
+        <h3>① 机器人模式准备 <span class="proc-pill" id="pill-g1mode">未知</span></h3>
+        <p class="warn">G1 处于高层模式（如 <code>ai</code>）时会忽略外部 lowcmd。<strong>释放高层模式</strong>后才接受 deploy 接管 —— 但释放 = 原生运控脱离，<strong>机器人会变软、靠吊架承重</strong>。释放前必须先停 deploy、确认吊架张紧、急停在手。</p>
+        <div class="row">
+          <button class="btn" onclick="g1Mode('check')">检查当前模式</button>
+          <button class="btn danger-btn" onclick="g1Mode('release')">释放高层模式（lowcmd 准备）</button>
+          <button class="btn" onclick="g1Mode('select','ai')">恢复高层模式 (ai)</button>
+        </div>
+        <pre class="logpane small" id="g1mode-out">（未操作）</pre>
+      </div>
+
+      <div class="card proc-card">
+        <h3>② C++ 策略部署 (real) <span class="proc-pill" id="pill-deploy_real">未运行</span></h3>
+        <div class="row">
+          <button class="btn danger-btn" id="btn-deploy_real" onclick="startProc('deploy_real')" disabled>启动（需安全确认）</button>
+          <button class="btn" onclick="stopProc('deploy_real')">优雅停止（绝不强杀）</button>
+        </div>
+        <div class="warn hidden" id="needs-manual-banner">⚠ 部署进程优雅停止失败，需人工处理 —— <b>不要 kill -9</b>，先确认机器人状态！</div>
+        <pre class="logpane small collapsed" id="log-deploy_real" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+
+      <div class="card proc-card">
+        <h3>③ PICO 数据流 <span class="proc-pill" id="pill-pico_streamer-5">未运行</span></h3>
+        <div class="row">
+          <button class="btn" id="btn-pico_streamer-5" onclick="startProc('pico_streamer')" disabled>启动</button>
+          <button class="btn" onclick="stopProc('pico_streamer')">停止</button>
+        </div>
+        <pre class="logpane small collapsed" id="log-pico_streamer-5" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+
+      <div class="card proc-card">
+        <h3>④ 真机手控制 (BrainCo) <span class="proc-pill" id="pill-brainco_hand">未运行</span></h3>
+        <p class="warn">deploy 只控身体；真机手在 <code>rt/brainco</code>。此桥把扳机握合 → 五指弯曲 → 真机手。前提：<strong>PC2 上 brainco_hand_server 在跑</strong>（手已 USB+上电），且 streamer 在 POSE 模式发数据。</p>
+        <div class="row">
+          <button class="btn" id="btn-brainco_hand" onclick="startProc('brainco_hand')">启动手桥</button>
+          <button class="btn" onclick="stopProc('brainco_hand')">停止</button>
+        </div>
+        <pre class="logpane small collapsed" id="log-brainco_hand" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ── sticky status / E-stop bar ── -->
+<footer id="statusbar">
+  <button id="estop" onclick="estop()">■ 紧急停止 E-STOP</button>
+  <div class="pills">
+    <span class="pill" id="pill-streammode">遥操模式: –</span>
+    <span class="pill" id="pill-locomode">步态: –</span>
+    <span class="pill" id="pill-deploystate">部署: –</span>
+  </div>
+  <span id="conn-dot" title="与控制台连接状态">●</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
