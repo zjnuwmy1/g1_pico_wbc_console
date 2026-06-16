@@ -177,6 +177,22 @@ async function restartHand(btn) {
   // success shows up as the 左/右手q + 触觉 chips turning green within a few seconds
   if (!r.ok) alert("重启手服务端失败：" + (r.error || r.out || "见日志"));
 }
+
+async function verifyMotors(btn) {
+  const out = $("verify-out");
+  if (out) { out.style.display = "block"; out.textContent = "验证中…（读 rt/lowcmd vs rt/lowstate）"; }
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("/api/verify/motors", {});
+    if (!out) return;
+    if (!r.ok) { out.textContent = "✗ " + (r.error || "失败"); return; }
+    let s = r.verdict + "\n\n关节        cmd_q   actual    kp    diff\n";
+    for (const j of r.joints) {
+      s += `${j.joint.padEnd(7)} ${String(j.cmd).padStart(7)} ${String(j.actual).padStart(8)} ${String(j.kp).padStart(5)} ${String(j.diff).padStart(7)} ${j.ok ? "✓" : "✗"}\n`;
+    }
+    out.textContent = s;
+  } finally { if (btn) btn.disabled = false; }
+}
 // spacebar = start/stop an episode while step 7 is focused (desk operation)
 document.addEventListener("keydown", (ev) => {
   if (ev.code === "Space" && document.getElementById("panel-7")?.classList.contains("active")

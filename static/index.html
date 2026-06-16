@@ -231,7 +231,11 @@
         <div class="row">
           <button class="btn danger-btn" id="btn-deploy_real" onclick="startProc('deploy_real')" disabled>启动（需安全确认）</button>
           <button class="btn" onclick="stopProc('deploy_real')">优雅停止（绝不强杀）</button>
+          <button class="btn" onclick="verifyMotors(this)">🔎 验证电机交权</button>
         </div>
+        <p class="warn" style="margin-top:4px">起 deploy 到 Init Done 后点「验证电机交权」：对比 deploy 命令 q vs 机器人实际 q。
+          <strong>没跟上 = 电机没交权（Init Done 是假的），要先手柄进调试模式（L2+R2）</strong>。</p>
+        <pre class="logpane small" id="verify-out" style="display:none"></pre>
         <div class="warn hidden" id="needs-manual-banner">⚠ 部署进程优雅停止失败，需人工处理 —— <b>不要 kill -9</b>，先确认机器人状态！</div>
         <pre class="logpane small collapsed" id="log-deploy_real" onclick="this.classList.toggle('collapsed')"></pre>
       </div>

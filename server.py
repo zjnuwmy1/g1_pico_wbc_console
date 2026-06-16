@@ -157,6 +157,26 @@ def run_g1_mode(action: str, name: str = "") -> dict:
     return res
 
 
+def run_verify_motors() -> dict:
+    """One-shot: does the robot actually track rt/lowcmd? (Init Done real vs fake)"""
+    if not config.VENV_PY.is_file():
+        return {"ok": False, "error": ".venv_teleop 不存在"}
+    robot = checks.find_real_robot_interface()
+    if robot is None:
+        return {"ok": False, "error": "未检测到机器人网接口(192.168.123.x)"}
+    cmd = [str(config.VENV_PY), str(config.VERIFY_MOTORS_PY), robot[0]]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=20,
+                           cwd=str(config.REPO_ROOT))
+        line = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else "{}"
+        try:
+            return json.loads(line)
+        except ValueError:
+            return {"ok": False, "error": (p.stdout + p.stderr)[-400:]}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "验证超时(20s)"}
+
+
 def run_brainco_restart() -> dict:
     """Restart the PC2 BrainCo hand server (it dies on PC2 reboot/net blip and
     takes hand q + tactile with it). Runs start_brainco.sh twice — the left hand
@@ -348,6 +368,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/brainco/restart":
             self._json(200, run_brainco_restart())
+            return
+        if u.path == "/api/verify/motors":
+            self._json(200, run_verify_motors())
             return
         if u.path == "/api/g1/mode":
             action = body.get("action", "check")
