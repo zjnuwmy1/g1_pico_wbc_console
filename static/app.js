@@ -161,6 +161,7 @@ async function recCmd(cmd, extra) {
   await api("/api/record", Object.assign({ cmd }, extra || {}));
 }
 function recToggle() { recCmd(_recOn ? "stop" : "start"); }   // one button / spacebar / grip+A
+function recAuto(on) { api("/api/record", { cmd: "auto", on: !!on }); }
 async function recPrepare() {
   // one-click: start the recorder backend (if not already up) + set the goal
   if (!(STATE && STATE.procs && STATE.procs.recorder && STATE.procs.recorder.alive)) {
@@ -529,6 +530,10 @@ async function pollLogs() {
             const g = (k) => (st.match(new RegExp(k + "=(\\S+)")) || [])[1];
             const rec = g("rec"), ep = g("ep"), fr = g("frames"), sg = g("stage"), sv = g("saved");
             _recOn = (rec === "ON");
+            const au = g("auto"), po = g("pose");
+            const ap = $("rec-auto-pill");
+            if (ap) { const on = au === "ON"; ap.textContent = on ? `auto:ON · ${po === "POSE" ? "POSE→录" : "等POSE"}` : "auto: off"; ap.className = "pill" + (on ? " ok" : ""); }
+            const ac = $("rec-auto"); if (ac && document.activeElement !== ac) ac.checked = (au === "ON");
             const sp = $("rec-status");
             if (sp) { sp.textContent = `rec:${rec} saved:${sv}`; sp.className = "pill" + (_recOn ? " ok" : ""); }
             if ($("rec-ep")) $("rec-ep").textContent = _recOn ? `录制中 ep=${ep} 帧=${fr}` : "未录";

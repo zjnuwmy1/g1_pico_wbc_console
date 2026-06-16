@@ -443,10 +443,10 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/record":
             # relay episode-recorder control to the recorder process via its stdin
             cmd = body.get("cmd")
-            if cmd not in ("start", "stop", "discard", "stage", "goal", "quit"):
+            if cmd not in ("start", "stop", "discard", "stage", "goal", "quit", "auto"):
                 self._json(400, {"ok": False, "error": "bad cmd"})
                 return
-            allowed = ("cmd", "stage", "label", "goal")
+            allowed = ("cmd", "stage", "label", "goal", "on")
             intent = {k: body[k] for k in allowed if k in body}
             line = (json.dumps(intent) + "\n").encode()
             self._json(200, PM.write_stdin("recorder", line))

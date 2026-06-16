@@ -364,6 +364,12 @@
 
       <div class="card">
         <h3>② 录一条 <span class="pill" id="rec-ep">未录</span></h3>
+        <div class="row" style="align-items:center">
+          <label><input type="checkbox" id="rec-auto" onchange="recAuto(this.checked)">
+            <strong>自动跟随 POSE 模式</strong></label>
+          <span class="pill" id="rec-auto-pill">auto: off</span>
+        </div>
+        <p class="warn" style="margin-top:4px">勾上后：切到 <strong>POSE 全身跟随</strong>自动开录，切到 <strong>上身冻结 / 行走规划</strong>自动停存。每个连续 POSE 段 = 一条 episode（太短的自动丢弃）。手动按钮在自动开时一般不用。</p>
         <div class="row">
           <button class="btn primary" id="rec-toggle" onclick="recToggle()" style="min-width:210px;font-size:16px">● 开始这条（空格）</button>
           <button class="btn danger-btn" onclick="recCmd('discard')">✕ 丢弃</button>

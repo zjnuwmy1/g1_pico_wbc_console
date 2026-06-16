@@ -55,6 +55,12 @@ CAM_HOST = os.environ.get("REC_CAM_HOST", "192.168.123.164")    # PC2
 POSE_PORT = int(os.environ.get("REC_POSE_PORT", "5556"))
 COLOR_PORT = int(os.environ.get("REC_COLOR_PORT", "55555"))
 DEPTH_PORT = int(os.environ.get("REC_DEPTH_PORT", "55565"))
+# auto mode: record only while the streamer is in POSE (full-body following) —
+# detected by pose freshness, since only POSE sends 'pose' messages (PLANNER /
+# frozen / pause stop them). Each continuous POSE segment becomes one episode.
+POSE_FRESH = 0.5          # s: pose newer than this => POSE mode active
+POSE_OFF_DEBOUNCE = 0.7   # s: pose absent this long => left POSE => stop+save
+AUTO_MIN_FRAMES = 15      # auto-episodes shorter than this are discarded
 HEADER_SIZE = 1280
 # struct format char + byte size per wire dtype
 _DTYPE = {"f32": ("f", 4), "f64": ("d", 8), "i32": ("i", 4),
@@ -240,6 +246,7 @@ def _stdin_thread():
 _ep = {"active": False, "dir": None, "idx": -1, "frame": 0, "stage": 0,
        "stage_label": "", "data": []}
 _session = {"dir": None, "count": 0, "goal": ""}
+_auto = {"on": False, "last_fresh": 0.0}   # auto-follow-POSE recording
 
 
 def _ensure_session():
@@ -267,11 +274,11 @@ def _start_episode():
     _log(f"START episode_{_ep['idx']:04d}")
 
 
-def _stop_episode(save=True):
+def _stop_episode(save=True, min_frames=1):
     if not _ep["active"]:
         return
     _ep["active"] = False
-    if not save or not _ep["data"]:
+    if not save or len(_ep["data"]) < min_frames:
         _log(f"DISCARD episode_{_ep['idx']:04d} ({len(_ep['data'])} frames)")
         _ep["idx"] -= 1   # reuse index
         return
@@ -382,6 +389,13 @@ def _apply_ctrl(d):
     elif cmd == "goal":
         _session["goal"] = str(d.get("goal", ""))
         _log(f"goal set: {_session['goal']}")
+    elif cmd == "auto":
+        _auto["on"] = bool(d.get("on", True))
+        _auto["last_fresh"] = time.monotonic()
+        _log(f"AUTO follow-POSE = {'ON' if _auto['on'] else 'off'}"
+             f"（POSE 模式自动录，切走自动停存）")
+        if not _auto["on"] and _ep["active"]:
+            _stop_episode(save=True, min_frames=AUTO_MIN_FRAMES)
     elif cmd == "quit":
         _run["on"] = False
 
@@ -403,13 +417,27 @@ def main():
             _ctrl["cmd"] = None
         if d:
             _apply_ctrl(d)
-        if _ep["active"]:
-            _write_frame()
         now = time.monotonic()
+        with _lock:
+            pose_fresh = (_latest["pose"] is not None
+                          and (now - _latest["pose_t"]) < POSE_FRESH)
+        # auto-follow-POSE: each continuous POSE segment = one episode
+        if _auto["on"]:
+            if pose_fresh:
+                _auto["last_fresh"] = now
+                if not _ep["active"]:
+                    _start_episode()
+            elif _ep["active"] and (now - _auto["last_fresh"]) > POSE_OFF_DEBOUNCE:
+                _stop_episode(save=True, min_frames=AUTO_MIN_FRAMES)
+        # write a frame; in auto mode only while POSE is fresh (no gap frames)
+        if _ep["active"] and (not _auto["on"] or pose_fresh):
+            _write_frame()
         if now - last_status >= 1.0:
             have = _have_sources()
             srcs = ",".join(k for k, v in have.items() if v) or "none"
             _log(f"STATUS rec={'ON' if _ep['active'] else 'off'} "
+                 f"auto={'ON' if _auto['on'] else 'off'} "
+                 f"pose={'POSE' if pose_fresh else '-'} "
                  f"ep={_ep['idx'] if _ep['active'] else '-'} "
                  f"frames={_ep['frame'] if _ep['active'] else 0} "
                  f"stage={_ep['stage']} saved={_session['count']} src=[{srcs}]")
