@@ -87,6 +87,37 @@ async function startProc(name) {
 
 async function stopProc(name) { await api(`/api/procs/${name}/stop`, {}); poll(); }
 
+const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const procAlive = (n) => !!(STATE && STATE.procs && STATE.procs[n] && STATE.procs[n].alive);
+
+/* ── one-click bring-up: deploy → streamer → hand bridge → recorder (+goal) ──
+   Collapses steps ②③④ + 准备录制 into one button. The dangerous prep
+   (confirm posture → release high-level mode) stays explicit above this. */
+async function startTeleopRecordStack(btn) {
+  const setS = (m) => { const s = $("stack-status"); if (s) s.textContent = m; };
+  if (btn) btn.disabled = true;
+  try {
+    if (!procAlive("deploy_real")) {
+      if (!safetyToken) { setS("✗ 先完成上面的安全确认门（确认姿态）再点"); return; }
+      setS("启动 deploy(real)…（首次建/载模型可能 ~30s）");
+      const r = await api("/api/procs/deploy_real/start", { safety_token: safetyToken });
+      safetyToken = null; updateSafetyUI(false);
+      if (!r.ok) { setS("✗ deploy 启动失败：" + (r.error || "")); return; }
+      await _sleep(3000);
+    }
+    if (!procAlive("pico_streamer")) {
+      setS("启动 PICO streamer…");
+      await api("/api/procs/pico_streamer/start", { vis: !!($("vis-toggle") && $("vis-toggle").checked) });
+      await _sleep(1500);
+    }
+    if (!procAlive("brainco_hand")) { setS("启动手桥…"); await api("/api/procs/brainco_hand/start", {}); await _sleep(1200); }
+    if (!procAlive("recorder")) { setS("启动录制器…"); await api("/api/procs/recorder/start", {}); await _sleep(1500); }
+    const goal = (($("stack-goal") && $("stack-goal").value) || "").trim() || "拿瓶子";
+    await api("/api/record", { cmd: "goal", goal });
+    setS("✓ 全链路已拉起 — 戴 PICO，去步骤7 看就绪灯，PICO动作转绿后 左Grip+A 录制");
+  } finally { if (btn) btn.disabled = false; poll(); }
+}
+
 /* ── manual drive (no PICO): relay intent to gui_drive via /api/drive ── */
 const _drive = { fwd: 0, strafe: 0, turn: 0 };
 function driveSend(extra) {

@@ -215,6 +215,17 @@
         <pre class="logpane small" id="g1mode-out">（未操作）</pre>
       </div>
 
+      <div class="card" style="border-color:#2e7d52;background:#15241c">
+        <h3>🚀 一键拉起全链路（deploy + streamer + 手桥 + 录制器）</h3>
+        <p class="warn" style="margin:4px 0">完成上面 <strong>① 确认姿态 + 释放高层模式</strong> 后，点这一个按钮顺序拉起整条遥操作+录制链路，
+          不用再逐个点 ②③④ + 步骤7。任务目标：<input type="text" id="stack-goal" value="拿瓶子" style="width:130px"></p>
+        <div class="row">
+          <button class="btn primary" onclick="startTeleopRecordStack(this)">🚀 一键拉起</button>
+          <span class="pill" id="stack-status">拉起后戴 PICO → 步骤7 左Grip+A 录制</span>
+        </div>
+        <p class="warn" style="margin-top:4px">下面 ②③④ 仍可单独控制（排错/手动）。PC2 手服务端没跑时，去步骤7 点「重启手服务端」。</p>
+      </div>
+
       <div class="card proc-card">
         <h3>② C++ 策略部署 (real) <span class="proc-pill" id="pill-deploy_real">未运行</span></h3>
         <div class="row">
