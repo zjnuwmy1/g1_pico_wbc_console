@@ -225,6 +225,36 @@ def run_hand_selftest() -> dict:
     return res
 
 
+def run_brainco_ensure() -> dict:
+    """Probe rt/brainco state; if the PC2 hand server isn't publishing (bad DDS
+    state), restart it and re-probe. Called at teleop startup so the hand server
+    is healthy before the bridge connects — folds the hand debug into bring-up."""
+    if not config.VENV_PY.is_file():
+        return {"ok": False, "error": ".venv_teleop 不存在"}
+    robot = checks.find_real_robot_interface()
+    if robot is None:
+        return {"ok": False, "error": "未检测到机器人网接口(192.168.123.x)"}
+    iface = robot[0]
+
+    def _probe():
+        try:
+            p = subprocess.run([str(config.VENV_PY), str(config.BRAINCO_PROBE_PY), iface],
+                               capture_output=True, text=True, timeout=12,
+                               cwd=str(config.REPO_ROOT))
+            return json.loads(p.stdout.strip().splitlines()[-1])
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    r = _probe()
+    if r.get("ok"):
+        return {"ok": True, "healthy": True, "restarted": False}
+    rec = run_brainco_restart()
+    time.sleep(3.0)
+    r2 = _probe()
+    return {"ok": bool(r2.get("ok")), "healthy": bool(r2.get("ok")),
+            "restarted": True, "recover_server_ok": bool(rec.get("ok"))}
+
+
 def run_brainco_restart() -> dict:
     """Restart the PC2 BrainCo hand server (it dies on PC2 reboot/net blip and
     takes hand q + tactile with it). Runs start_brainco.sh twice — the left hand
@@ -416,6 +446,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/brainco/restart":
             self._json(200, run_brainco_restart())
+            return
+        if u.path == "/api/brainco/ensure":
+            self._json(200, run_brainco_ensure())
             return
         if u.path == "/api/hand/selftest":
             self._json(200, run_hand_selftest())

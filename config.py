@@ -34,6 +34,8 @@ G1_MODE_PY = CONSOLE_ROOT / "helpers" / "g1_mode.py"
 VERIFY_MOTORS_PY = CONSOLE_ROOT / "helpers" / "verify_motor_handover.py"
 # Hand self-test: drive both BrainCo hands through each motor group, check encoder
 HAND_SELFTEST_PY = CONSOLE_ROOT / "helpers" / "hand_selftest.py"
+# Quick health probe: is the PC2 hand server publishing rt/brainco state?
+BRAINCO_PROBE_PY = CONSOLE_ROOT / "helpers" / "brainco_probe.py"
 # Real BrainCo hand bridge: streamer grasp -> rt/brainco/{l,r}/cmd (deploy only
 # drives the body; the real hands live on rt/brainco). Needs PC2 brainco server.
 BRAINCO_BRIDGE_PY = CONSOLE_ROOT / "helpers" / "brainco_hand_bridge.py"

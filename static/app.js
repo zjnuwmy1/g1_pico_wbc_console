@@ -110,6 +110,12 @@ async function startTeleopRecordStack(btn) {
       await api("/api/procs/pico_streamer/start", { vis: !!($("vis-toggle") && $("vis-toggle").checked) });
       await _sleep(1500);
     }
+    // ensure the PC2 hand server is actually publishing state (auto-restart if its
+    // DDS went bad) BEFORE starting the bridge — folds the hand debug into startup
+    setS("检查手服务端健康…");
+    const he = await api("/api/brainco/ensure", {});
+    if (he.restarted) setS(he.healthy ? "手服务端不健康 → 已自动重启 ✓" : "⚠ 手服务端重启后仍无数据，查 PC2/通电");
+    await _sleep(500);
     if (!procAlive("brainco_hand")) { setS("启动手桥…"); await api("/api/procs/brainco_hand/start", {}); await _sleep(1200); }
     if (!procAlive("recorder")) { setS("启动录制器…"); await api("/api/procs/recorder/start", {}); await _sleep(1500); }
     const goal = (($("stack-goal") && $("stack-goal").value) || "").trim() || "拿瓶子";
