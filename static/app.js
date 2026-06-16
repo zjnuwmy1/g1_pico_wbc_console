@@ -186,8 +186,9 @@ async function handSelftest(btn) {
   try {
     const r = await api("/api/hand/selftest", {});
     if (!out) return;
-    if (!r.ok) { out.textContent = "✗ " + (r.error || "失败"); return; }
-    let s = r.verdict + "\n\n";
+    const heal = r.auto_recovered ? "ℹ 检测到收不到手数据 → 已自动重启 PC2 手服务端后重试\n\n" : "";
+    if (!r.ok) { out.textContent = heal + "✗ " + (r.error || "失败"); return; }
+    let s = heal + r.verdict + "\n\n";
     for (const side of ["L", "R"]) {
       const h = r.hands && r.hands[side];
       if (!h) continue;
