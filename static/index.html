@@ -216,7 +216,7 @@
         <pre class="logpane small" id="g1mode-out">（未操作）</pre>
       </div>
 
-      <div class="card" style="border-color:#2e7d52;background:#15241c">
+      <div class="card success">
         <h3>🚀 一键拉起全链路（deploy + streamer + 手桥 + 录制器）</h3>
         <p class="warn" style="margin:4px 0">完成上面 <strong>① 确认姿态 + 释放高层模式</strong> 后，点这一个按钮顺序拉起整条遥操作+录制链路，
           不用再逐个点 ②③④ + 步骤7。任务目标：<input type="text" id="stack-goal" value="拿瓶子" style="width:130px"></p>
@@ -227,6 +227,9 @@
         <p class="warn" style="margin-top:4px">下面 ②③④ 仍可单独控制（排错/手动）。PC2 手服务端没跑时，去步骤7 点「重启手服务端」。</p>
       </div>
 
+      <details class="adv">
+        <summary>高级 / 排错 — 逐个进程 + 诊断（走 happy path 不用展开，上面「🚀 一键拉起」已包办）</summary>
+
       <div class="card proc-card">
         <h3>② C++ 策略部署 (real) <span class="proc-pill" id="pill-deploy_real">未运行</span></h3>
         <div class="row">
@@ -236,7 +239,7 @@
         </div>
         <p class="warn" style="margin-top:4px">起 deploy 到 Init Done 后点「验证电机交权」：对比 deploy 命令 q vs 机器人实际 q。
           <strong>没跟上 = 电机没交权（Init Done 是假的），要先手柄进调试模式（L2+R2）</strong>。</p>
-        <pre class="logpane small" id="verify-out" style="display:none"></pre>
+        <pre class="logpane small hidden" id="verify-out"></pre>
         <div class="warn hidden" id="needs-manual-banner">⚠ 部署进程优雅停止失败，需人工处理 —— <b>不要 kill -9</b>，先确认机器人状态！</div>
         <pre class="logpane small collapsed" id="log-deploy_real" onclick="this.classList.toggle('collapsed')"></pre>
       </div>
@@ -259,8 +262,14 @@
           <button class="btn" onclick="handSelftest(this)">🤚 自检手</button>
         </div>
         <p class="warn" style="margin-top:4px">「自检手」逐组驱动两手每个电机 + 读 encoder 确认真动（约 12s，<strong>手会动</strong>；自动停手桥跑完再重起）。无需 PICO。摇杆Y→对掌那路要 PICO 才能经手桥测，但电机本身这里会验。</p>
-        <pre class="logpane small" id="selftest-out" style="display:none"></pre>
+        <pre class="logpane small hidden" id="selftest-out"></pre>
         <pre class="logpane small collapsed" id="log-brainco_hand" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+      </details>
+
+      <div class="step-actions">
+        <button class="btn primary" onclick="showStep(7)">去步骤 7 · 数据录制 →</button>
+        <button class="btn" onclick="showStep(6)">也可去步骤 6 手动驾驶（无需 PICO）</button>
       </div>
     </section>
 
@@ -322,7 +331,7 @@
       <p class="warn">PICO 全链路遥操作跑起来后，本页录 <strong>(图像 + 本体 + 手 + 动作)</strong> 帧。
         <strong>动作 = 你的遥操作指令</strong>（腕 3 点目标 + 扳机/握），训练出的策略可直接回灌同一套 WBC+手桥。</p>
 
-      <div class="card" style="border-color:#2e7d52;background:#15241c">
+      <div class="card success">
         <h3>🎮 最省事：戴着头显用手柄起停（全程不碰电脑）</h3>
         <p style="font-size:15px;line-height:1.8;margin:4px 0">
           <strong>左 Grip + A</strong> = 开始 / 停止保存 一条 &nbsp;·&nbsp;
@@ -383,6 +392,9 @@
         <p class="warn">阶段（接近/对位/抓取/提起）<strong>在数据清洗阶段标</strong>，<strong>录制时不用点</strong> —— 录的时候专心遥操作。录完去
           <strong>步骤8 数据查看</strong>，拖到阶段边界帧标一下，存回 data.json。</p>
       </div>
+      <div class="step-actions">
+        <button class="btn primary" onclick="showStep(8)">去步骤 8 · 数据查看 →</button>
+      </div>
     </section>
 
     <section class="step-panel" id="panel-8">
@@ -425,6 +437,9 @@
   </main>
 </div>
 
+<!-- global needs-manual alarm (deploy stuck → shown above the footer) -->
+<div id="manual-strip">⚠ 部署进程需人工处理 —— 不要 kill -9，先确认机器人姿态/吊架，按规程优雅处理</div>
+
 <!-- ── sticky status / E-stop bar ── -->
 <footer id="statusbar">
   <button id="estop" onclick="estop()">■ 紧急停止 E-STOP</button>
@@ -433,7 +448,7 @@
     <span class="pill" id="pill-locomode">步态: –</span>
     <span class="pill" id="pill-deploystate">部署: –</span>
   </div>
-  <span id="conn-dot" title="与控制台连接状态">●</span>
+  <span id="conn-dot" title="与控制台连接状态">● 连接中…</span>
 </footer>
 
 <script src="app.js"></script>

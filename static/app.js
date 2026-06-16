@@ -51,8 +51,17 @@ async function api(path, body) {
   const opts = body !== undefined
     ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
     : {};
-  const r = await fetch(path, opts);
-  return r.json();
+  // Never throw: a network blip used to become a silent unhandled rejection that
+  // killed the caller (incl. E-STOP). Always resolve to an object with .ok.
+  try {
+    const r = await fetch(path, opts);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok && j.ok === undefined) j.ok = false;
+    if (!r.ok && !j.error) j.error = "HTTP " + r.status;
+    return j;
+  } catch (e) {
+    return { ok: false, _neterr: true, error: "网络/服务未响应（控制台可能已断开）：" + (e.message || e) };
+  }
 }
 
 /* ── stepper navigation ── */
@@ -62,9 +71,16 @@ function showStep(n) {
   $(`panel-${n}`).classList.add("active");
   document.querySelector(`.step-tab[data-step="${n}"]`).classList.add("active");
   localStorage.setItem("wbc_step", n);
+  // auto-load the data viewer the first time you open it
+  if (String(n) === "8" && $("ep-sel") && !$("ep-sel").options.length) loadRecordings();
 }
-document.querySelectorAll(".step-tab").forEach((t) =>
-  t.addEventListener("click", () => showStep(t.dataset.step)));
+document.querySelectorAll(".step-tab").forEach((t) => {
+  t.tabIndex = 0;  // keyboard-reachable
+  t.addEventListener("click", () => showStep(t.dataset.step));
+  t.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); showStep(t.dataset.step); }
+  });
+});
 
 /* ── actions ── */
 async function runChecks(scope) {
@@ -76,12 +92,13 @@ async function startProc(name) {
   const body = {};
   if (name === "pico_streamer") body.vis = $("vis-toggle").checked;
   if (name === "deploy_real") {
-    if (!safetyToken) { alert("请先完成安全确认门"); return; }
+    if (!safetyToken) { uiToast("请先完成步骤5 的安全确认门（勾选清单 + 输入「确认姿态」）", "warn"); return; }
     body.safety_token = safetyToken;
   }
   const res = await api(`/api/procs/${name}/start`, body);
-  if (!res.ok && res.error) alert(res.error);
-  if (name === "deploy_real") { safetyToken = null; updateSafetyUI(false); }
+  if (!res.ok) uiToast("启动 " + name + " 失败：" + (res.error || "见日志"), "warn");
+  // only consume the safety token if deploy actually started (don't waste the gate)
+  if (name === "deploy_real" && res.ok) { safetyToken = null; updateSafetyUI(false); }
   poll();
 }
 
@@ -119,6 +136,7 @@ async function startTeleopRecordStack(btn) {
     if (!procAlive("brainco_hand")) { setS("启动手桥…"); await api("/api/procs/brainco_hand/start", {}); await _sleep(1200); }
     if (!procAlive("recorder")) { setS("启动录制器…"); await api("/api/procs/recorder/start", {}); await _sleep(1500); }
     const goal = (($("stack-goal") && $("stack-goal").value) || "").trim() || "拿瓶子";
+    localStorage.setItem("wbc_goal", goal);
     await api("/api/record", { cmd: "goal", goal });
     setS("✓ 全链路已拉起 — 戴 PICO，去步骤7 看就绪灯，PICO动作转绿后 左Grip+A 录制");
   } finally { if (btn) btn.disabled = false; poll(); }
@@ -153,6 +171,13 @@ document.addEventListener("keydown", (ev) => {
 document.addEventListener("keyup", (ev) => {
   if (_driveKeys[ev.key]) { const [ax] = _driveKeys[ev.key]; if (_drive[ax] !== 0) { _drive[ax] = 0; driveSend(); } }
 });
+// deadman failsafe: never leave the robot moving if focus/pointer is lost
+const _driveDead = () => { if (_drive.fwd || _drive.strafe || _drive.turn) driveAllStop(); };
+window.addEventListener("blur", _driveDead);
+document.addEventListener("visibilitychange", () => { if (document.hidden) _driveDead(); });
+document.addEventListener("pointerup", _driveDead);
+document.addEventListener("pointercancel", _driveDead);
+document.addEventListener("touchcancel", _driveDead);
 
 /* ── episode recorder (StageAct data collection): relay to /api/record ── */
 let _recOn = false;
@@ -169,6 +194,7 @@ async function recPrepare() {
     await new Promise((r) => setTimeout(r, 1500));   // let it bind sockets / DDS
   }
   const goal = (($("rec-goal") && $("rec-goal").value) || "").trim() || "拿瓶子";
+  localStorage.setItem("wbc_goal", goal);
   await api("/api/record", { cmd: "goal", goal });
   poll();
 }
@@ -182,13 +208,14 @@ async function restartHand(btn) {
   const r = await api("/api/brainco/restart", {});
   if (btn) { btn.disabled = false; btn.textContent = old; }
   // success shows up as the 左/右手q + 触觉 chips turning green within a few seconds
-  if (!r.ok) alert("重启手服务端失败：" + (r.error || r.out || "见日志"));
+  if (!r.ok) uiToast("重启手服务端失败：" + (r.error || r.out || "见日志"), "warn");
+  else uiToast("PC2 手服务端已重启", "ok");
 }
 
 async function handSelftest(btn) {
   if (!(await uiConfirm("自检手会驱动两只手运动约 12 秒（自动停手桥跑完再重起）。确认手周围无障碍、可以动？"))) return;
   const out = $("selftest-out");
-  if (out) { out.style.display = "block"; out.textContent = "自检中…（手会动，约 12s）"; }
+  if (out) { out.classList.remove("hidden"); out.textContent = "自检中…（手会动，约 12s）"; }
   if (btn) btn.disabled = true;
   try {
     const r = await api("/api/hand/selftest", {});
@@ -210,7 +237,7 @@ async function handSelftest(btn) {
 
 async function verifyMotors(btn) {
   const out = $("verify-out");
-  if (out) { out.style.display = "block"; out.textContent = "验证中…（读 rt/lowcmd vs rt/lowstate）"; }
+  if (out) { out.classList.remove("hidden"); out.textContent = "验证中…（读 rt/lowcmd vs rt/lowstate）"; }
   if (btn) btn.disabled = true;
   try {
     const r = await api("/api/verify/motors", {});
@@ -299,7 +326,10 @@ function showFrame(i) {
   i = Math.max(0, Math.min(_epData.data.length - 1, parseInt(i) || 0));
   $("ep-slider").value = i;
   const f = _epData.data[i];
-  $("ep-frame").src = `${_epPath}/frames/${String(f.idx).padStart(6, "0")}_head.jpg`;
+  const img = $("ep-frame");
+  img.alt = `帧 ${f.idx}（stage ${f.stage}）`;
+  img.onerror = () => { img.alt = `帧 ${f.idx} 图像缺失`; };
+  img.src = `${_epPath}/frames/${String(f.idx).padStart(6, "0")}_head.jpg`;
   $("ep-fidx").textContent = `${i + 1} / ${_epData.data.length}`;
   const r2 = (x) => (typeof x === "number" ? x.toFixed(2) : (x ?? "-"));
   const a = f.action || {}, tac = f.tactile || {};
@@ -343,6 +373,29 @@ function uiConfirm(message) {
   });
 }
 
+/* ── self-drawn toast — native alert() can be suppressed by the browser (the
+   same reason confirm() was abandoned), which on a safety tool means a click
+   (incl. E-STOP) can give zero feedback. This in-page toast can't be blocked.
+   kind: ok / warn / danger. danger is sticky until clicked; others auto-dismiss. ── */
+function uiToast(message, kind = "ok") {
+  let host = $("toast-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "toast-host";
+    host.style.cssText = "position:fixed;left:50%;bottom:74px;transform:translateX(-50%);z-index:10000;display:flex;flex-direction:column;gap:8px;align-items:center;max-width:92vw";
+    document.body.append(host);
+  }
+  const C = { ok: ["#15351f", "#7fdc9b", "✓"], warn: ["#3a3214", "#f1d77f", "⚠"], danger: ["#3a1717", "#ff9b9b", "■"] };
+  const [bg, fg, glyph] = C[kind] || C.ok;
+  const t = document.createElement("div");
+  t.style.cssText = `background:${bg};color:${fg};border:1px solid ${fg}55;border-radius:8px;padding:10px 16px;font-size:14px;line-height:1.5;white-space:pre-wrap;box-shadow:0 6px 24px rgba(0,0,0,.5);cursor:pointer;max-width:560px`;
+  t.textContent = `${glyph} ${message}`;
+  t.onclick = () => t.remove();
+  host.append(t);
+  if (kind !== "danger") setTimeout(() => t.remove(), 5500);
+  return t;
+}
+
 /* ── real G1 high-level mode switch (release for lowcmd / re-select) ── */
 async function g1Mode(action, name) {
   const out = $("g1mode-out");
@@ -372,9 +425,26 @@ async function g1Mode(action, name) {
 }
 
 async function estop() {
-  const res = await api("/api/estop", {});
-  alert("急停已触发:\n" + (res.actions || []).join("\n"));
-  poll();
+  const btn = $("estop");
+  // instant, unmissable acknowledgement BEFORE the network await
+  if (btn) {
+    btn.classList.add("estop-sent");
+    const old = btn.textContent; btn.textContent = "■ 急停已发送…";
+    setTimeout(() => { btn.classList.remove("estop-sent"); btn.textContent = old; }, 2000);
+  }
+  try {
+    const res = await api("/api/estop", {});
+    if (res._neterr || res.ok === false) {
+      // the one click that MUST never fail silently
+      uiToast("急停指令可能未送达控制台！\n立即用手柄 A+B+X+Y，或在部署终端按 O 急停。\n" + (res.error || ""), "danger");
+    } else {
+      const acts = res.actions || [];
+      const failed = acts.some((l) => /FAIL/i.test(l));
+      uiToast("急停已触发：\n" + (acts.join("\n") || "(无动作)"), failed ? "danger" : "ok");
+    }
+  } finally {
+    poll();
+  }
 }
 
 async function picoProbe() {
@@ -389,7 +459,7 @@ async function confirmSafety() {
   const res = await api("/api/safety/confirm", {
     checklist, typed: $("safety-typed").value,
   });
-  if (!res.ok) { alert(res.error); return; }
+  if (!res.ok) { uiToast(res.error || "安全确认失败", "warn"); return; }
   safetyToken = res.safety_token;
   updateSafetyUI(true, res.expires_in);
 }
@@ -397,8 +467,9 @@ async function confirmSafety() {
 function updateSafetyUI(armed, ttl) {
   const st = $("safety-status");
   if (armed) {
-    st.textContent = `已解锁 (${ttl || 120}s 内有效, 单次)`;
-    st.className = "proc-pill ready";
+    const t = ttl == null ? 120 : ttl;
+    st.textContent = `已解锁 · 剩余 ${t}s（单次）`;
+    st.className = "proc-pill " + (t < 30 ? "starting" : "ready");  // amber when about to expire
     $("btn-deploy_real").disabled = false;
   } else {
     st.textContent = "未解锁";
@@ -414,7 +485,9 @@ async function completeStep(n) {
 }
 
 function copyText(id) {
-  navigator.clipboard.writeText($(id).textContent).then(() => alert("已复制"));
+  navigator.clipboard.writeText($(id).textContent)
+    .then(() => uiToast("已复制到剪贴板", "ok"))
+    .catch(() => uiToast("复制失败，请手动选中复制", "warn"));
 }
 
 /* ── rendering ── */
@@ -451,7 +524,12 @@ function pillFor(name, procs, elId) {
     failed: ["异常退出", "failed"], needs_manual: ["需人工处理!", "needs_manual"],
     idle: ["未运行", ""],
   };
-  const [txt, cls] = map[p.status] || [p.status, ""];
+  let [txt, cls] = map[p.status] || [p.status, ""];
+  if (p.status === "starting" && p.started_at && STATE && STATE.now) {
+    const secs = Math.round(STATE.now - p.started_at);
+    txt = `启动中… ${secs}s`;
+    if (secs > (name.startsWith("deploy") ? 50 : 20)) txt += "（较久·查日志）";
+  }
   el.textContent = txt + (p.pid && p.alive ? ` (pid ${p.pid})` : "");
   el.className = "proc-pill " + cls;
 }
@@ -556,9 +634,13 @@ function renderState(s) {
   $("auto-robot-net").textContent = robotNet ? `✓ ${robotNet[0]}=${robotNet[1]}` : "✗ 离线";
   $("auto-robot-net").style.color = robotNet ? "var(--ok)" : "var(--fail)";
 
-  // needs-manual banner
+  // needs-manual: step-5 banner + GLOBAL red strip (deploy stuck = unmissable)
   const dr = procs["deploy_real"];
-  $("needs-manual-banner").classList.toggle("hidden", !(dr && dr.status === "needs_manual"));
+  const needsManual = (dr && dr.status === "needs_manual") ||
+    (procs["deploy_sim"] && procs["deploy_sim"].status === "needs_manual");
+  const nmb = $("needs-manual-banner");
+  if (nmb) nmb.classList.toggle("hidden", !(dr && dr.status === "needs_manual"));
+  document.body.classList.toggle("needs-manual", !!needsManual);
 
   // safety token countdown from server view
   if (safetyToken && s.safety && !s.safety.armed) { safetyToken = null; updateSafetyUI(false); }
@@ -570,10 +652,18 @@ function renderState(s) {
   smEl.className = "pill" + (t.stream_mode === "POSE" ? " pose-mode" : (t.stream_mode && t.stream_mode !== "OFF" ? " active-mode" : ""));
   $("pill-locomode").textContent = "步态: " + locoModeLabel(t.loco_mode, t.loco_mode_name);
   const ds = $("pill-deploystate");
-  ds.textContent = "部署: " + (t.active_deploy
-    ? `${t.active_deploy === "deploy_real" ? "真机" : "仿真"} ${t.deploy_control ? "控制中" : (t.deploy_ready ? "就绪" : "初始化…")}`
-    : "–");
-  ds.className = "pill" + (t.deploy_control ? " pose-mode" : (t.deploy_ready ? " active-mode" : ""));
+  if (needsManual) {
+    ds.textContent = "部署: ⚠ 需人工处理 — 勿 kill -9";
+    ds.className = "pill err";
+  } else if (t.active_deploy && t.deploy_waiting_lowstate && !t.deploy_control) {
+    ds.textContent = "部署: ⚠ 收不到机器人 LowState（查 已释放高层模式 / 调试模式 / 机器人网）";
+    ds.className = "pill err";
+  } else {
+    ds.textContent = "部署: " + (t.active_deploy
+      ? `${t.active_deploy === "deploy_real" ? "真机" : "仿真"} ${t.deploy_control ? "控制中" : (t.deploy_ready ? "就绪(待 start)" : "初始化…")}`
+      : "–");
+    ds.className = "pill" + (t.deploy_control ? " pose-mode" : (t.deploy_ready ? " active-mode" : ""));
+  }
 
   // checks cache on first load
   if (s.checks_cache && s.checks_cache.env && !renderState._checksDone) {
@@ -636,17 +726,55 @@ async function pollLogs() {
 }
 
 /* ── main poll loop ── */
+let _lastPollOk = Date.now();
 async function poll() {
+  const cd = $("conn-dot");
   try {
     const s = await fetch("/api/state").then((r) => r.json());
     renderState(s);
-    $("conn-dot").classList.add("on");
+    _lastPollOk = Date.now();
+    if (cd) { cd.classList.add("on"); cd.textContent = "● 已连接"; cd.title = "状态实时刷新中"; }
+    document.body.classList.remove("stale");
   } catch (e) {
-    $("conn-dot").classList.remove("on");
+    if (cd) { cd.classList.remove("on"); cd.textContent = "⚠ 连接断开"; cd.title = "无法连到控制台"; }
+    document.body.classList.add("stale");
   }
 }
+// staleness watchdog: a frozen loop must stop looking live
+setInterval(() => {
+  const dt = Date.now() - _lastPollOk;
+  if (dt > 3000) {
+    document.body.classList.add("stale");
+    const cd = $("conn-dot");
+    if (cd && cd.classList.contains("on")) cd.textContent = `⚠ 状态 ${Math.round(dt / 1000)}s 未更新`;
+  }
+}, 1000);
 
 $("estop-mastered").addEventListener("change", poll);
+
+// restore persisted prefs (task goal, vis-window checkbox)
+(function restorePrefs() {
+  const g = localStorage.getItem("wbc_goal");
+  if (g) for (const id of ["stack-goal", "rec-goal"]) { const el = $(id); if (el) el.value = g; }
+  const v = localStorage.getItem("wbc_vis");
+  if (v !== null && $("vis-toggle")) $("vis-toggle").checked = v === "1";
+})();
+// keep the two goal inputs + localStorage in sync
+function _syncGoal(v) {
+  localStorage.setItem("wbc_goal", v);
+  for (const id of ["stack-goal", "rec-goal"]) { const el = $(id); if (el && el.value !== v) el.value = v; }
+}
+for (const id of ["stack-goal", "rec-goal"]) {
+  const el = $(id); if (el) el.addEventListener("input", () => _syncGoal(el.value));
+}
+if ($("vis-toggle")) $("vis-toggle").addEventListener("change", (e) => localStorage.setItem("wbc_vis", e.target.checked ? "1" : "0"));
+// arrow-key frame scrubbing in the data viewer (step 8)
+document.addEventListener("keydown", (ev) => {
+  if (!$("panel-8") || !$("panel-8").classList.contains("active")) return;
+  if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT" || ev.target.tagName === "TEXTAREA") return;
+  if (ev.key === "ArrowLeft") { ev.preventDefault(); frameStep(ev.shiftKey ? -10 : -1); }
+  else if (ev.key === "ArrowRight") { ev.preventDefault(); frameStep(ev.shiftKey ? 10 : 1); }
+});
 
 showStep(localStorage.getItem("wbc_step") || "1");
 poll();

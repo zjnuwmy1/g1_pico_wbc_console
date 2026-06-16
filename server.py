@@ -294,7 +294,8 @@ def run_checks(scope: str) -> list[dict]:
 
 def teleop_state() -> dict:
     out = {"stream_mode": None, "loco_mode": None, "loco_mode_name": None,
-           "deploy_control": False, "deploy_ready": False, "estop_ack": False}
+           "deploy_control": False, "deploy_ready": False, "estop_ack": False,
+           "deploy_waiting_lowstate": False}
     s = PM.get("pico_streamer")
     if s:
         sm = s.parsed.get("stream_mode")
@@ -312,6 +313,7 @@ def teleop_state() -> dict:
             out["deploy_ready"] = d.status == "ready" or "ready_marker" in d.parsed
             out["deploy_control"] = "control" in d.parsed
             out["estop_ack"] = "estop_ack" in d.parsed
+            out["deploy_waiting_lowstate"] = "waiting_lowstate" in d.parsed
             out["active_deploy"] = name
             break
     return out
