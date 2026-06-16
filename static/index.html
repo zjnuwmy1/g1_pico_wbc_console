@@ -45,7 +45,7 @@
         <p class="hint">运行 <code>install_scripts/install_pico.sh</code>，耗时数分钟，会<strong>重建</strong>已有 venv。</p>
         <div class="row">
           <button class="btn" id="btn-install-pico" onclick="startProc('install_pico')">开始安装</button>
-          <button class="btn" onclick="stopProc('install_pico')">中止</button>
+          <button class="btn" onclick="stopProc('install_pico')">停止</button>
           <span class="proc-pill" id="pill-install_pico">未运行</span>
         </div>
         <pre class="logpane" id="log-install_pico"></pre>
@@ -265,6 +265,33 @@
         <pre class="logpane small hidden" id="selftest-out"></pre>
         <pre class="logpane small collapsed" id="log-brainco_hand" onclick="this.classList.toggle('collapsed')"></pre>
       </div>
+      </details>
+
+      <details class="adv">
+        <summary>手柄操作速查（真机 · 同 sim）—— 切 POSE 前务必先对齐姿态！</summary>
+        <div class="card">
+          <p class="warn"><strong>⚠ 切入 POSE / VR_3PT 前，先把手臂摆到机器人当前姿态附近，否则机器人会瞬间猛动！</strong></p>
+          <div class="cols">
+            <div>
+              <h4>启动 + 急停</h4>
+              <ol>
+                <li>摆校准姿势（站直、脚并拢、大臂下垂、小臂前屈 90° L 形、掌心相对）</li>
+                <li><kbd>A+B+X+Y</kbd> 同按 → 启动策略 + 全身校准（开始自平衡）</li>
+                <li>先对齐手臂，再 <kbd>A+X</kbd> 进<b>全身跟随 (POSE)</b></li>
+              </ol>
+              <p class="note">急停：手柄 <kbd>A+B+X+Y</kbd> · 本页底部红色 E-STOP（发官方 <code>o</code>）</p>
+            </div>
+            <div>
+              <h4>模式切换</h4>
+              <table class="keymap">
+                <tr><td><kbd>A+X</kbd></td><td>行走规划 ↔ 全身跟随 (POSE)</td></tr>
+                <tr><td><kbd>B+Y</kbd></td><td>POSE ↔ 上身冻结+行走</td></tr>
+                <tr><td><kbd>左摇杆按下</kbd></td><td>进/出三点跟随（先对齐手臂！）</td></tr>
+                <tr><td><kbd>A+B</kbd>/<kbd>X+Y</kbd></td><td>下/上一个步态</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
       </details>
 
       <div class="step-actions">
