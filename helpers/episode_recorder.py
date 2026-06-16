@@ -68,7 +68,9 @@ _latest = {"pose": None, "pose_t": 0.0,
            "depth": None, "depth_t": 0.0,
            "lowstate": None, "lowstate_t": 0.0,
            "lhand": None, "lhand_t": 0.0,
-           "rhand": None, "rhand_t": 0.0}
+           "rhand": None, "rhand_t": 0.0,
+           "ltouch": None, "ltouch_t": 0.0,
+           "rtouch": None, "rtouch_t": 0.0}
 _ctrl = {"cmd": None}            # one-shot control from stdin
 _run = {"on": True}
 
@@ -164,6 +166,11 @@ def _dds_threads():
         _log(f"DDS unavailable, proprio/hand state off: {e}")
         return
     try:
+        from touch_idl import TouchHand_   # sits next to this script (helpers/)
+    except Exception as e:
+        TouchHand_ = None
+        _log(f"touch_idl unavailable, tactile off: {e}")
+    try:
         ChannelFactoryInitialize(0, IFACE)
     except Exception as e:
         _log(f"DDS init failed ({IFACE}): {e}")
@@ -188,10 +195,30 @@ def _dds_threads():
                 _latest[side + "_t"] = time.monotonic()
         return cb
 
+    def touch_cb(side):
+        # BrainCo Revo2 fingertip sensors: 65 values/hand (5 fingers ×
+        # normal/tangential force, proximity, status). Stored flat per field.
+        def cb(m):
+            with _lock:
+                _latest[side] = {
+                    "normal_force": list(m.normal_force),
+                    "tangential_force": list(m.tangential_force),
+                    "tangential_direction": list(m.tangential_direction),
+                    "self_proximity": list(m.self_proximity),
+                    "mutual_proximity": list(m.mutual_proximity),
+                    "status": list(m.status),
+                }
+                _latest[side + "_t"] = time.monotonic()
+        return cb
+
     ChannelSubscriber("rt/lowstate", LowState_).Init(low_cb, 10)
-    ChannelSubscriber("rt/brainco/l/state", MotorStates_).Init(hand_cb("lhand"), 10)
-    ChannelSubscriber("rt/brainco/r/state", MotorStates_).Init(hand_cb("rhand"), 10)
-    _log("DDS subscribers up (rt/lowstate, rt/brainco/{l,r}/state)")
+    # NOTE topics are left/right (full words), NOT l/r — matches brainco_hand_server
+    ChannelSubscriber("rt/brainco/left/state", MotorStates_).Init(hand_cb("lhand"), 10)
+    ChannelSubscriber("rt/brainco/right/state", MotorStates_).Init(hand_cb("rhand"), 10)
+    if TouchHand_ is not None:
+        ChannelSubscriber("rt/brainco/left/touch", TouchHand_).Init(touch_cb("ltouch"), 10)
+        ChannelSubscriber("rt/brainco/right/touch", TouchHand_).Init(touch_cb("rtouch"), 10)
+    _log("DDS subscribers up (rt/lowstate, rt/brainco/{left,right}/{state,touch})")
     while _run["on"]:
         time.sleep(0.5)
 
@@ -258,6 +285,9 @@ def _stop_episode(save=True):
                             "left_hand_joints", "right_hand_joints"],
             "state_keys": ["joint_q", "joint_dq", "imu_quat", "imu_gyro",
                            "left_hand_q", "right_hand_q"],
+            "tactile_keys": ["normal_force", "tangential_force", "tangential_direction",
+                             "self_proximity", "mutual_proximity", "status"],
+            "tactile_layout": "BrainCo Revo2, 5 fingers [thumb,index,middle,ring,pinky] flattened; 65/hand",
             "vr_3point": "[L-wrist,R-wrist,Neck] pos(9)+quat_wxyz(12), root frame",
         },
         "text": {"goal": _session["goal"]},
@@ -277,7 +307,9 @@ def _have_sources():
                 "pose": _latest["pose"] is not None,
                 "lowstate": _latest["lowstate"] is not None,
                 "lhand": _latest["lhand"] is not None,
-                "rhand": _latest["rhand"] is not None}
+                "rhand": _latest["rhand"] is not None,
+                "ltouch": _latest["ltouch"] is not None,
+                "rtouch": _latest["rtouch"] is not None}
 
 
 _ACT_KEYS = ("vr_position", "vr_orientation", "left_trigger", "right_trigger",
@@ -292,6 +324,7 @@ def _write_frame():
         depth = _latest["depth"]
         low = _latest["lowstate"]
         lh, rh = _latest["lhand"], _latest["rhand"]
+        lt, rt = _latest["ltouch"], _latest["rtouch"]
     if pose is None and color is None:
         return  # nothing worth recording yet
     i = _ep["frame"]
@@ -314,10 +347,17 @@ def _write_frame():
             state["left_hand_q"] = lh["q"]
         if rh:
             state["right_hand_q"] = rh["q"]
+    tactile = None
+    if lt or rt:
+        tactile = {}
+        if lt:
+            tactile["left"] = lt
+        if rt:
+            tactile["right"] = rt
     rec = {"idx": i, "stage": _ep["stage"], "stage_label": _ep["stage_label"],
            "t_mono": round(time.monotonic(), 6),
            "t_real": round(time.time(), 6),
-           "frames": frames, "action": action, "state": state}
+           "frames": frames, "action": action, "state": state, "tactile": tactile}
     if pose and "timestamp_realtime" in pose:
         rec["pose_t_real"] = pose["timestamp_realtime"]
     _ep["data"].append(rec)

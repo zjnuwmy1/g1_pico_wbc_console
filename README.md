@@ -89,7 +89,8 @@ import 上游 `build_command_message` / `build_planner_message`，把按钮意�
 | 动作 | `vr_position`(腕3点位置) `vr_orientation`(wxyz) `left/right_trigger`+`grip` `*_hand_joints` | ZMQ 5556 `pose` 消息（自描述 header 通用解析） |
 | 图像 | 头相机 RGB（JPEG）+ depth（PNG-16），原始字节存盘 | PC2 ZMQ 55555 / 55565 |
 | 本体 obs | 真机 29 关节 q/dq + 躯干 IMU | DDS `rt/lowstate` |
-| 手 obs | 手 6 关节 q（+触觉，待 brainco DDS 修） | DDS `rt/brainco/{l,r}/state` |
+| 手 obs | 手 6 关节 q | DDS `rt/brainco/{left,right}/state`（MotorStates_） |
+| 触觉 obs | 每手 65 维（normal/tangential force + proximity + status，5 指） | DDS `rt/brainco/{left,right}/touch`（TouchHand_，见 `helpers/touch_idl.py`） |
 
 - 落盘：`recordings/<session>/episode_XXXX/`（`frames/*.jpg`+`*.png` + `data.json`，每帧带 `action`/`state`/`stage`/时间戳）。
 - 控制：GUI 按钮（`/api/record` → recorder stdin）**或** PICO 手柄数据采集键（pose 里 `toggle_data_collection` 边沿）起停，abort 键丢弃。
