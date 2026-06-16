@@ -382,6 +382,40 @@ def api_recordings() -> dict:
     return {"ok": True, "sessions": sessions}
 
 
+def apply_annotation(rel_path: str, boundaries: list) -> dict:
+    """Write stage labels into an episode's data.json (offline annotation). Each
+    boundary {frame, stage, label} sets the stage from that frame index onward
+    until the next boundary. Frames before the first boundary -> stage 0."""
+    if not rel_path.startswith("/recordings/"):
+        return {"ok": False, "error": "bad path"}
+    ep = (config.RECORDINGS_DIR / rel_path[len("/recordings/"):]).resolve()
+    if not str(ep).startswith(str(config.RECORDINGS_DIR.resolve())):
+        return {"ok": False, "error": "bad path"}
+    dj = ep / "data.json"
+    if not dj.is_file():
+        return {"ok": False, "error": "data.json 不存在"}
+    try:
+        d = json.loads(dj.read_text())
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    try:
+        bs = sorted(({"frame": int(b["frame"]), "stage": int(b["stage"]),
+                      "label": str(b.get("label", ""))} for b in boundaries),
+                    key=lambda x: x["frame"])
+    except (KeyError, ValueError, TypeError):
+        return {"ok": False, "error": "bad boundaries"}
+    for i, fr in enumerate(d.get("data", [])):
+        cur = {"stage": 0, "label": ""}
+        for b in bs:
+            if b["frame"] <= i:
+                cur = b
+            else:
+                break
+        fr["stage"], fr["stage_label"] = cur["stage"], cur["label"]
+    dj.write_text(json.dumps(d, separators=(",", ":")))
+    return {"ok": True, "frames": len(d.get("data", [])), "boundaries": len(bs)}
+
+
 # ── HTTP handler ─────────────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
@@ -485,6 +519,9 @@ class Handler(BaseHTTPRequestHandler):
             intent = {k: body[k] for k in allowed if k in body}
             line = (json.dumps(intent) + "\n").encode()
             self._json(200, PM.write_stdin("gui_drive", line))
+            return
+        if u.path == "/api/recordings/annotate":
+            self._json(200, apply_annotation(body.get("path", ""), body.get("boundaries", [])))
             return
         if u.path == "/api/record":
             # relay episode-recorder control to the recorder process via its stdin

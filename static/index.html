@@ -379,14 +379,9 @@
       </div>
 
       <div class="card">
-        <h3>③ 阶段标注 <span class="pill">当前：<strong id="rec-stage">0</strong></span></h3>
-        <div class="row">
-          <button class="btn" onclick="recStage(0,'接近')">① 接近</button>
-          <button class="btn" onclick="recStage(1,'对位')">② 对位</button>
-          <button class="btn" onclick="recStage(2,'抓取')">③ 抓取</button>
-          <button class="btn" onclick="recStage(3,'提起')">④ 提起</button>
-        </div>
-        <p class="warn" style="margin-top:6px">拿瓶子分段：接近 → 对位 → 合手抓取 → 提起。录制时随动作点对应阶段，边界写进每帧（StageAct 用）。</p>
+        <h3>③ 阶段标注 → 在步骤8做（数据清洗时）</h3>
+        <p class="warn">阶段（接近/对位/抓取/提起）<strong>在数据清洗阶段标</strong>，<strong>录制时不用点</strong> —— 录的时候专心遥操作。录完去
+          <strong>步骤8 数据查看</strong>，拖到阶段边界帧标一下，存回 data.json。</p>
       </div>
     </section>
 
@@ -409,6 +404,22 @@
           <span class="pill" id="ep-fidx">0 / 0</span>
         </div>
         <pre class="logpane small" id="ep-frame-info" style="margin-top:6px"></pre>
+      </div>
+      <div class="card">
+        <h3>阶段标注（数据清洗）<span class="pill" id="anno-status">—</span></h3>
+        <p class="warn">拖到某阶段的<strong>起始帧</strong>，点对应阶段 = 从这帧起算该阶段（到下一个边界）。设完点「保存」写回 data.json。</p>
+        <div class="row">
+          <button class="btn" onclick="markStage(0,'接近')">① 接近(从这帧)</button>
+          <button class="btn" onclick="markStage(1,'对位')">② 对位</button>
+          <button class="btn" onclick="markStage(2,'抓取')">③ 抓取</button>
+          <button class="btn" onclick="markStage(3,'提起')">④ 提起</button>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <button class="btn" onclick="undoStage()">撤销上一个</button>
+          <button class="btn" onclick="clearStages()">清空</button>
+          <button class="btn primary" onclick="saveStages()">💾 保存标注</button>
+        </div>
+        <pre class="logpane small" id="anno-list"></pre>
       </div>
     </section>
   </main>

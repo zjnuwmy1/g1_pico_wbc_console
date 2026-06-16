@@ -260,7 +260,39 @@ async function openEpisode() {
   const sl = $("ep-slider"); sl.max = Math.max(0, n - 1); sl.value = 0;
   const info = d.info || {};
   $("ep-info").textContent = `目标：${(d.text || {}).goal || "?"} · ${n} 帧 · 相机：${(info.cameras || []).join("/") || "无"} · 触觉：${info.tactile_keys ? "有" : "无"}`;
+  // derive existing stage boundaries from the data (for re-annotation)
+  _epBounds = []; let prev = 0;
+  for (let i = 0; i < n; i++) {
+    const st = d.data[i].stage || 0;
+    if (st !== prev) { _epBounds.push({ frame: i, stage: st, label: d.data[i].stage_label || "" }); prev = st; }
+  }
+  renderBounds();
+  if ($("anno-status")) { $("anno-status").textContent = _epBounds.length ? "已有标注" : "未标注"; $("anno-status").className = "pill"; }
   showFrame(0);
+}
+
+/* ── offline stage annotation (step 8) ── */
+let _epBounds = [];
+function renderBounds() {
+  const el = $("anno-list"); if (!el) return;
+  const sorted = [..._epBounds].sort((a, b) => a.frame - b.frame);
+  el.textContent = sorted.length ? sorted.map((b) => `f${b.frame} → 阶段${b.stage} ${b.label}`).join("\n") : "（无标注，全 stage 0）";
+}
+function _annoDirty() { if ($("anno-status")) { $("anno-status").textContent = "未保存"; $("anno-status").className = "pill err"; } }
+function markStage(stage, label) {
+  if (!_epData) return;
+  const fr = parseInt($("ep-slider").value) || 0;
+  _epBounds = _epBounds.filter((b) => b.frame !== fr);
+  _epBounds.push({ frame: fr, stage, label });
+  renderBounds(); _annoDirty();
+}
+function undoStage() { _epBounds.pop(); renderBounds(); _annoDirty(); }
+function clearStages() { _epBounds = []; renderBounds(); _annoDirty(); }
+async function saveStages() {
+  if (!_epPath) return;
+  const r = await api("/api/recordings/annotate", { path: _epPath, boundaries: _epBounds });
+  if (r.ok) { $("anno-status").textContent = `已保存（${r.boundaries} 边界 / ${r.frames} 帧）`; $("anno-status").className = "pill ok"; }
+  else { $("anno-status").textContent = "保存失败：" + (r.error || ""); $("anno-status").className = "pill err"; }
 }
 function showFrame(i) {
   if (!_epData) return;
