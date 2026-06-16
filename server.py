@@ -357,6 +357,31 @@ def api_state() -> dict:
     }
 
 
+def api_recordings() -> dict:
+    """List recorded sessions and their episodes (for the data viewer)."""
+    base = config.RECORDINGS_DIR
+    sessions = []
+    if base.is_dir():
+        for sess in sorted([p for p in base.iterdir() if p.is_dir()], reverse=True):
+            eps = []
+            for ep in sorted([p for p in sess.iterdir() if p.is_dir()
+                              and p.name.startswith("episode_")]):
+                info = {"name": ep.name, "frames": 0, "goal": "", "cameras": []}
+                dj = ep / "data.json"
+                if dj.is_file():
+                    try:
+                        d = json.loads(dj.read_text())
+                        info["frames"] = len(d.get("data", []))
+                        info["goal"] = d.get("text", {}).get("goal", "")
+                        info["cameras"] = d.get("info", {}).get("cameras", [])
+                    except Exception:
+                        pass
+                eps.append(info)
+            if eps:
+                sessions.append({"session": sess.name, "episodes": eps})
+    return {"ok": True, "sessions": sessions}
+
+
 # ── HTTP handler ─────────────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
@@ -392,6 +417,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _serve_recording(self, rel: str) -> None:
+        # serve files under recordings/ (episode images + data.json) for the viewer
+        sub = rel[len("/recordings/"):]
+        target = (config.RECORDINGS_DIR / sub).resolve()
+        if not str(target).startswith(str(config.RECORDINGS_DIR.resolve())) or not target.is_file():
+            self._json(404, {"error": "not found"})
+            return
+        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        if ctype == "application/json":
+            ctype += "; charset=utf-8"
+        data = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def _body(self) -> dict:
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -404,6 +446,10 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/api/state":
             self._json(200, api_state())
+        elif u.path == "/api/recordings":
+            self._json(200, api_recordings())
+        elif u.path.startswith("/recordings/"):
+            self._serve_recording(u.path)
         elif u.path.startswith("/api/logs/"):
             name = u.path.rsplit("/", 1)[-1]
             since = int(parse_qs(u.query).get("since", ["0"])[0])

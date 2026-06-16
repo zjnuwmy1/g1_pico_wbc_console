@@ -232,6 +232,55 @@ document.addEventListener("keydown", (ev) => {
   }
 });
 
+/* ── data viewer (step 8): browse recorded episodes ── */
+let _epData = null, _epPath = "";
+async function loadRecordings() {
+  const r = await fetch("/api/recordings").then((x) => x.json()).catch(() => null);
+  const sel = $("ep-sel");
+  if (!r || !r.sessions || !r.sessions.length) {
+    sel.innerHTML = "<option>（暂无录制）</option>"; $("ep-info").textContent = "recordings/ 里还没有 episode。"; return;
+  }
+  let html = "", total = 0;
+  for (const s of r.sessions) for (const e of s.episodes) {
+    total++;
+    html += `<option value="/recordings/${s.session}/${e.name}">${s.session} / ${e.name} · ${e.frames}帧 · ${e.goal || "?"}</option>`;
+  }
+  sel.innerHTML = html;
+  $("ep-info").textContent = `共 ${total} 条 episode（${r.sessions.length} 个会话）。`;
+  openEpisode();
+}
+async function openEpisode() {
+  const path = $("ep-sel").value;
+  if (!path || path[0] !== "/") return;
+  _epPath = path;
+  const d = await fetch(`${path}/data.json`).then((x) => x.json()).catch(() => null);
+  if (!d || !d.data) { $("ep-info").textContent = "读取 data.json 失败"; return; }
+  _epData = d;
+  const n = d.data.length;
+  const sl = $("ep-slider"); sl.max = Math.max(0, n - 1); sl.value = 0;
+  const info = d.info || {};
+  $("ep-info").textContent = `目标：${(d.text || {}).goal || "?"} · ${n} 帧 · 相机：${(info.cameras || []).join("/") || "无"} · 触觉：${info.tactile_keys ? "有" : "无"}`;
+  showFrame(0);
+}
+function showFrame(i) {
+  if (!_epData) return;
+  i = Math.max(0, Math.min(_epData.data.length - 1, parseInt(i) || 0));
+  $("ep-slider").value = i;
+  const f = _epData.data[i];
+  $("ep-frame").src = `${_epPath}/frames/${String(f.idx).padStart(6, "0")}_head.jpg`;
+  $("ep-fidx").textContent = `${i + 1} / ${_epData.data.length}`;
+  const r2 = (x) => (typeof x === "number" ? x.toFixed(2) : (x ?? "-"));
+  const a = f.action || {}, tac = f.tactile || {};
+  const peak = (side) => { const t = tac[side]; return (t && t.normal_force) ? Math.max(...t.normal_force) : "-"; };
+  let s = `帧 ${f.idx}  stage=${f.stage}${f.stage_label ? "(" + f.stage_label + ")" : ""}\n`;
+  s += f.action ? `动作: L grip=${r2(a.left_grip)} trig=${r2(a.left_trigger)} | R grip=${r2(a.right_grip)} trig=${r2(a.right_trigger)}\n`
+                : "动作: (该帧无 pose)\n";
+  s += `触觉峰值 normal_force: 左=${peak("left")} 右=${peak("right")}`;
+  if (f.state && f.state.joint_q) s += `\n本体: ${f.state.joint_q.length} 关节 q` + (f.state.left_hand_q ? ` · 左手 ${f.state.left_hand_q.length}` : "");
+  $("ep-frame-info").textContent = s;
+}
+function frameStep(d) { if (_epData) showFrame((parseInt($("ep-slider").value) || 0) + d); }
+
 /* ── in-page confirm modal ── the native confirm() can be permanently
    suppressed by the browser ("阻止此页面再创建对话框"), which makes every
    danger button that gates on it look unclickable ("点不动"). This self-drawn

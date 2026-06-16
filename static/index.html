@@ -21,6 +21,7 @@
     <div class="step-tab danger" data-step="5"><span class="num">5</span>真机遥操作</div>
     <div class="step-tab danger" data-step="6"><span class="num">6</span>手动驾驶</div>
     <div class="step-tab" data-step="7"><span class="num">7</span>数据录制</div>
+    <div class="step-tab" data-step="8"><span class="num">8</span>数据查看</div>
   </nav>
 
   <main>
@@ -386,6 +387,28 @@
           <button class="btn" onclick="recStage(3,'提起')">④ 提起</button>
         </div>
         <p class="warn" style="margin-top:6px">拿瓶子分段：接近 → 对位 → 合手抓取 → 提起。录制时随动作点对应阶段，边界写进每帧（StageAct 用）。</p>
+      </div>
+    </section>
+
+    <section class="step-panel" id="panel-8">
+      <h2>步骤 8 · 数据查看</h2>
+      <p class="warn">浏览录好的 episode：拖动滑条看每帧 <strong>头相机 RGB</strong> + 该帧的动作/触觉/阶段。数据在 <code>recordings/</code>。</p>
+      <div class="card">
+        <div class="row" style="align-items:center">
+          <button class="btn" onclick="loadRecordings()">刷新列表</button>
+          <label>选择：<select id="ep-sel" onchange="openEpisode()" style="min-width:280px"></select></label>
+        </div>
+        <div id="ep-info" class="warn" style="margin-top:6px">点「刷新列表」加载。</div>
+      </div>
+      <div class="card">
+        <img id="ep-frame" alt="(选一条 episode)" style="max-width:640px;width:100%;background:#000;border-radius:6px;display:block">
+        <div class="row" style="margin-top:8px;align-items:center">
+          <button class="btn" onclick="frameStep(-1)">◀</button>
+          <input type="range" id="ep-slider" min="0" max="0" value="0" style="flex:1" oninput="showFrame(this.value)">
+          <button class="btn" onclick="frameStep(1)">▶</button>
+          <span class="pill" id="ep-fidx">0 / 0</span>
+        </div>
+        <pre class="logpane small" id="ep-frame-info" style="margin-top:6px"></pre>
       </div>
     </section>
   </main>
