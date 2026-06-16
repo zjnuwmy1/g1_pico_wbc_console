@@ -319,7 +319,19 @@
           <button class="btn primary" onclick="recPrepare()">🔴 准备录制（起后端 + 设目标）</button>
           <button class="btn" onclick="stopProc('recorder')">停止后端</button>
         </div>
-        <p class="warn" style="margin-top:4px">订阅 streamer 5556(动作)·PC2 头相机 55555/55565·DDS rt/lowstate+rt/brainco。落盘 <code>recordings/</code>。</p>
+        <div class="row" style="margin-top:8px;align-items:center">
+          <span style="color:var(--dim);font-size:13px">数据就绪：</span>
+          <span class="srcdot" id="src-head">相机</span>
+          <span class="srcdot" id="src-depth">深度</span>
+          <span class="srcdot" id="src-pose">PICO动作</span>
+          <span class="srcdot" id="src-lowstate">本体</span>
+          <span class="srcdot" id="src-lhand">左手q</span>
+          <span class="srcdot" id="src-rhand">右手q</span>
+          <span class="srcdot" id="src-ltouch">左触觉</span>
+          <span class="srcdot" id="src-rtouch">右触觉</span>
+          <button class="btn" onclick="restartHand(this)" style="margin-left:auto">↻ 重启手服务端(PC2)</button>
+        </div>
+        <p class="warn" style="margin-top:4px">启动后端后看上面 8 个灯：灰=该路没数据。<strong>PICO动作</strong>灰=头显没流；<strong>触觉/手q</strong>灰=PC2 手服务端没跑（点右边重启）。落盘 <code>recordings/</code>。</p>
         <pre class="logpane small collapsed" id="log-recorder" onclick="this.classList.toggle('collapsed')"></pre>
       </div>
 

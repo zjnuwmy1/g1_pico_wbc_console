@@ -138,6 +138,14 @@ function recStage(stage, label) {
   api("/api/record", { cmd: "stage", stage, label });
   if ($("rec-stage")) $("rec-stage").textContent = String(stage);
 }
+async function restartHand(btn) {
+  const old = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "重启中…(~10s)"; }
+  const r = await api("/api/brainco/restart", {});
+  if (btn) { btn.disabled = false; btn.textContent = old; }
+  // success shows up as the 左/右手q + 触觉 chips turning green within a few seconds
+  if (!r.ok) alert("重启手服务端失败：" + (r.error || r.out || "见日志"));
+}
 // spacebar = start/stop an episode while step 7 is focused (desk operation)
 document.addEventListener("keydown", (ev) => {
   if (ev.code === "Space" && document.getElementById("panel-7")?.classList.contains("active")
@@ -451,6 +459,13 @@ async function pollLogs() {
             if (sg && $("rec-stage")) $("rec-stage").textContent = sg;
             const tg = $("rec-toggle");
             if (tg) { tg.textContent = _recOn ? "■ 停止保存（空格）" : "● 开始这条（空格）"; tg.className = "btn " + (_recOn ? "danger-btn" : "primary"); }
+            // light the data-source readiness chips from src=[...]
+            const srcRaw = (st.match(/src=\[([^\]]*)\]/) || [])[1] || "";
+            const active = new Set(srcRaw.split(",").map((s) => s.trim()));
+            for (const k of ["head", "depth", "pose", "lowstate", "lhand", "rhand", "ltouch", "rtouch"]) {
+              const el = $("src-" + k);
+              if (el) el.className = "srcdot" + (active.has(k) ? " on" : "");
+            }
           }
         }
       }

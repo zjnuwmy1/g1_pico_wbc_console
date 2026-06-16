@@ -157,6 +157,24 @@ def run_g1_mode(action: str, name: str = "") -> dict:
     return res
 
 
+def run_brainco_restart() -> dict:
+    """Restart the PC2 BrainCo hand server (it dies on PC2 reboot/net blip and
+    takes hand q + tactile with it). Runs start_brainco.sh twice — the left hand
+    often fails its first serial scan. No sudo needed (dialout group)."""
+    remote = ("bash ~/start_brainco.sh >/dev/null 2>&1; sleep 2; "
+              "bash ~/start_brainco.sh 2>&1 | grep -iE 'bound|hand' | tail -4; "
+              "pgrep -f '[b]rainco_hand_server' >/dev/null && echo SERVER_ALIVE")
+    cmd = ["ssh", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes", "g1pc2", remote]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+        out = (p.stdout + p.stderr).strip()[-500:]
+        return {"ok": "SERVER_ALIVE" in p.stdout, "out": out}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "ssh PC2 超时（PC2 在线吗？）"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # ── checks cache ─────────────────────────────────────────────────────────────
 _checks_cache: dict[str, list] = {}
 
@@ -327,6 +345,9 @@ class Handler(BaseHTTPRequestHandler):
             intent = {k: body[k] for k in allowed if k in body}
             line = (json.dumps(intent) + "\n").encode()
             self._json(200, PM.write_stdin("recorder", line))
+            return
+        if u.path == "/api/brainco/restart":
+            self._json(200, run_brainco_restart())
             return
         if u.path == "/api/g1/mode":
             action = body.get("action", "check")
