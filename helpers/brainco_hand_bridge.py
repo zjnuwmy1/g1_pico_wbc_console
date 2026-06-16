@@ -136,9 +136,9 @@ FINGER_IDX = (2, 3, 4, 5)  # index/middle/ring/pinky proximal
 # They are decoupled: META_FOLLOW=0 means metacarpal does NOT follow grip, it is
 # driven purely by stick Y. (Set WBC_THUMB_META_FOLLOW>0 to re-couple: metacarpal
 # follows grip ×factor + stick trim, the old combined-close behaviour.)
-# NOTE right-hand thumb_metacarpal motor is mechanically broken — independent
-# opposition only physically moves on the LEFT hand. Y is free in POSE mode
-# (yaw steering uses right-stick X).
+# Both hands' metacarpal works (right hand was replaced with new hardware
+# 2026-06-16), so independent opposition moves on either thumb. Y is free in
+# POSE mode (yaw steering uses right-stick X).
 META_FOLLOW = float(os.environ.get("WBC_THUMB_META_FOLLOW", "0.0"))
 STICK_RATE = 0.8           # offset units/s at full stick deflection
 STICK_DEADZONE = 0.15
