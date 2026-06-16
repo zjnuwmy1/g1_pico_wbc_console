@@ -347,6 +347,15 @@
       </div>
 
       <div class="card">
+        <h3>🔧 根治：启用 PC2 手服务端自启（一次性，需 PC2 sudo）</h3>
+        <p class="hint">手服务端在 PC2 一重启/掉网就死。启用 systemd 后<strong>开机自起 + 崩了 10s 自愈</strong>，从此不用手动重启。
+          GUI 无法替你输 sudo 密码，复制到终端跑一次即可：</p>
+        <pre class="cmdblock" id="brainco-autostart-cmd">ssh -t g1pc2 'sudo systemctl enable --now brainco-hand-server.service && systemctl status brainco-hand-server.service --no-pager'</pre>
+        <button class="btn" onclick="copyText('brainco-autostart-cmd')">复制命令</button>
+        <p class="warn" style="margin-top:4px">启用后改用 <code>sudo systemctl restart brainco-hand-server</code> 重启，别再点「重启手服务端」按钮（会和 systemd 抢）。</p>
+      </div>
+
+      <div class="card">
         <h3>② 录一条 <span class="pill" id="rec-ep">未录</span></h3>
         <div class="row">
           <button class="btn primary" id="rec-toggle" onclick="recToggle()" style="min-width:210px;font-size:16px">● 开始这条（空格）</button>
