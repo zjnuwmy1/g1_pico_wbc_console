@@ -199,6 +199,13 @@ def run_hand_selftest() -> dict:
     a bad DDS state), auto-restarts the server and retries once. MOVES HANDS ~12s."""
     if not config.VENV_PY.is_file():
         return {"ok": False, "error": ".venv_teleop 不存在"}
+    # NEVER run heavy DDS diagnostics while a real deploy is controlling the robot:
+    # the extra participants can starve rt/lowstate and trip the deploy's safety
+    # stop ("Lost LowState"), killing a live teleop session. Self-test before the
+    # deploy, or stop the deploy first.
+    if PM.any_alive(("deploy_real",)):
+        return {"ok": False, "error": "deploy(real) 在跑 —— 自检手会停手桥+驱动手+起 DDS 探针，"
+                "可能让 deploy 丢 lowstate 安全停。请在起 deploy 前自检，或先停 deploy。"}
     robot = checks.find_real_robot_interface()
     if robot is None:
         return {"ok": False, "error": "未检测到机器人网接口(192.168.123.x)"}
