@@ -46,11 +46,13 @@ st = {"L": None, "R": None}
 ChannelSubscriber("rt/brainco/left/state", MotorStates_).Init(lambda m: st.__setitem__("L", m), 10)
 ChannelSubscriber("rt/brainco/right/state", MotorStates_).Init(lambda m: st.__setitem__("R", m), 10)
 
+time.sleep(1.0)   # warm up DDS service discovery (cold participant misses early)
 t = time.time()
-while time.time() - t < 3 and not (st["L"] or st["R"]):
+while time.time() - t < 8 and not (st["L"] or st["R"]):
     time.sleep(0.1)
 if not (st["L"] or st["R"]):
-    out({"ok": False, "error": "没收到 rt/brainco state —— PC2 手服务端在跑吗？手通电了吗？"})
+    out({"ok": False, "error": "没收到 rt/brainco state（8s）—— PC2 手服务端在跑吗？"
+                                "（ssh g1pc2 pgrep brainco_hand_server）手通电了吗？"})
 
 
 def send(tg):

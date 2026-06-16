@@ -220,7 +220,14 @@ def main():
     # stick-held metacarpal trim offset and last raw stick Y (for L/R debugging)
     meta_off = {"L": 0.0, "R": 0.0}
     stick_raw = {"L": 0.0, "R": 0.0}
-    signal.signal(signal.SIGTERM, lambda *_: _running.__setitem__("on", False))
+    # Handle BOTH SIGTERM and SIGINT the same way: set _running off so the loop
+    # exits into os._exit(0) (line ~306). procman's "py" stop sends SIGINT FIRST;
+    # if it isn't caught, Python's normal shutdown runs the xrt destructor, which
+    # SEGFAULTS during DDS teardown and poisons the domain for new participants
+    # (e.g. the hand self-test then can't receive rt/brainco state).
+    _sigstop = lambda *_: _running.__setitem__("on", False)
+    signal.signal(signal.SIGTERM, _sigstop)
+    signal.signal(signal.SIGINT, _sigstop)
     threading.Thread(target=_zmq_reader, daemon=True).start()
     _thumb_mode = (f"grip->prox + stickY->meta INDEPENDENT({'ON' if _xrt else 'stick OFF!'})"
                    if META_FOLLOW == 0.0 else
