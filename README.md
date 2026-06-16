@@ -47,8 +47,8 @@ gear_sonic deploy 的手命令发 `rt/dex3`，但**真机 BrainCo Revo2 手听 `
 | 输入 | 控制 |
 |---|---|
 | **Trigger**（食指扳机） | 四指弯曲（模拟量） |
-| **Grip**（中指侧握键） | 拇指整体闭合（metacarpal 跟随 ×0.8 + proximal） |
-| **同侧摇杆 Y** | 拇指对掌微调（速率式，松手保持） |
+| **Grip**（中指侧握键） | 拇指弯曲 thumb_proximal（独立，绝对量，捏合即弯） |
+| **同侧摇杆 Y** | 拇指对掌 thumb_metacarpal（独立，速率式 [0,1]，松手保持） |
 
 **安全/过流保护**（位置伺服电流 ∝ 位置误差 → 钳误差即钳电流）：
 
@@ -59,7 +59,8 @@ gear_sonic deploy 的手命令发 `rt/dex3`，但**真机 BrainCo Revo2 手听 `
   不会死握冻住（GUI 急停故意不杀手桥，靠此路径开手）。
 - 退出 `os._exit(0)` 绕过 xrt 析构段错误。
 
-环境变量：`WBC_HAND_MAX_CLOSE` / `WBC_THUMB_META_FOLLOW` / `WBC_THUMB_STICK[=0]` / `WBC_THUMB_STICK_INVERT` / `WBC_REVO2_RAWHAND`。
+拇指**两轴独立**：`WBC_THUMB_META_FOLLOW=0`（默认，metacarpal 由摇杆 Y 独立控制，与 grip 解耦；设 >0 回到旧的「跟随 grip」耦合模式）。
+环境变量：`WBC_HAND_MAX_CLOSE` / `WBC_THUMB_META_FOLLOW[=0]` / `WBC_THUMB_STICK[=1]` / `WBC_THUMB_STICK_INVERT`（翻转摇杆 Y 方向）/ `WBC_REVO2_RAWHAND`。
 
 PC2 上需先跑 BrainCo 服务端：`~/brainco_hand_service/bin/brainco_hand_server`（`dialout` 组免 sudo），
 仓库外脚本 `~/start_brainco.sh` 按 PID 杀旧实例 + setsid 起新（开机后左手第一次扫常失败，跑一两次即双手绑定）。

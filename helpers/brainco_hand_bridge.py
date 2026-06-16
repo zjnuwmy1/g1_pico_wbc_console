@@ -130,11 +130,16 @@ def _zmq_reader():
 META_I, PROX_I = 0, 1      # thumb_metacarpal (sweep/opposition), thumb_proximal (curl)
 FINGER_IDX = (2, 3, 4, 5)  # index/middle/ring/pinky proximal
 
-# Thumb metacarpal = grip * META_FOLLOW + stick-trimmed OFFSET. Squeezing the
-# grip closes the WHOLE thumb naturally (symmetric L/R, curl immediately
-# visible); the same-side thumbstick Y rate-adjusts a held offset for fine
-# opposition trim. Y is free in POSE mode — yaw steering uses right-stick X.
-META_FOLLOW = float(os.environ.get("WBC_THUMB_META_FOLLOW", "0.8"))
+# Thumb has TWO independent DOF, each on its own controller input:
+#   grip      -> thumb_proximal  (curl)        — squeeze to curl the thumb
+#   stick Y   -> thumb_metacarpal (opposition)  — rate-controlled, HOLDS on release
+# They are decoupled: META_FOLLOW=0 means metacarpal does NOT follow grip, it is
+# driven purely by stick Y. (Set WBC_THUMB_META_FOLLOW>0 to re-couple: metacarpal
+# follows grip ×factor + stick trim, the old combined-close behaviour.)
+# NOTE right-hand thumb_metacarpal motor is mechanically broken — independent
+# opposition only physically moves on the LEFT hand. Y is free in POSE mode
+# (yaw steering uses right-stick X).
+META_FOLLOW = float(os.environ.get("WBC_THUMB_META_FOLLOW", "0.0"))
 STICK_RATE = 0.8           # offset units/s at full stick deflection
 STICK_DEADZONE = 0.15
 STICK_SIGN = -1.0 if os.environ.get("WBC_THUMB_STICK_INVERT") == "1" else 1.0
@@ -217,8 +222,10 @@ def main():
     stick_raw = {"L": 0.0, "R": 0.0}
     signal.signal(signal.SIGTERM, lambda *_: _running.__setitem__("on", False))
     threading.Thread(target=_zmq_reader, daemon=True).start()
-    print(f"[brainco-bridge] running (iface={iface}) | grip->thumb(meta×{META_FOLLOW}+prox) "
-          f"stickY->meta trim({'ON' if _xrt else 'OFF'}) trigger->fingers | "
+    _thumb_mode = (f"grip->prox + stickY->meta INDEPENDENT({'ON' if _xrt else 'stick OFF!'})"
+                   if META_FOLLOW == 0.0 else
+                   f"grip->thumb(meta×{META_FOLLOW}+prox)+stickY trim({'ON' if _xrt else 'OFF'})")
+    print(f"[brainco-bridge] running (iface={iface}) | {_thumb_mode} trigger->fingers | "
           f"slew {MAX_RATE}/s | max_close {MAX_CLOSE} | "
           f"stall clamp gap {STALL_GAP}rad margin {STALL_MARGIN}rad | "
           f"stale>{STALE_S}s -> open {STALE_OPEN_RATE}/s", flush=True)
@@ -249,7 +256,9 @@ def main():
                     # grip-following base (symmetric L/R when stick untouched)
                     y = _stick_y(side)
                     stick_raw[side] = y
-                    meta_off[side] = min(1.0, max(-1.0, meta_off[side] + STICK_RATE * y * dt))
+                    # stick Y integrates the metacarpal opposition target in [0,1]
+                    # and HOLDS on release. Decoupled from grip (META_FOLLOW=0).
+                    meta_off[side] = min(1.0, max(0.0, meta_off[side] + STICK_RATE * y * dt))
                     meta_tgt = min(MAX_CLOSE, max(0.0, prox_tgt * META_FOLLOW + meta_off[side]))
                     step = MAX_RATE * dt
                     cmd[side][0] += min(step, max(-step, meta_tgt - cmd[side][0]))
