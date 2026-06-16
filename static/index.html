@@ -255,7 +255,10 @@
         <div class="row">
           <button class="btn" id="btn-brainco_hand" onclick="startProc('brainco_hand')">启动手桥</button>
           <button class="btn" onclick="stopProc('brainco_hand')">停止</button>
+          <button class="btn" onclick="handSelftest(this)">🤚 自检手</button>
         </div>
+        <p class="warn" style="margin-top:4px">「自检手」逐组驱动两手每个电机 + 读 encoder 确认真动（约 12s，<strong>手会动</strong>；自动停手桥跑完再重起）。无需 PICO。摇杆Y→对掌那路要 PICO 才能经手桥测，但电机本身这里会验。</p>
+        <pre class="logpane small" id="selftest-out" style="display:none"></pre>
         <pre class="logpane small collapsed" id="log-brainco_hand" onclick="this.classList.toggle('collapsed')"></pre>
       </div>
     </section>

@@ -178,6 +178,28 @@ async function restartHand(btn) {
   if (!r.ok) alert("重启手服务端失败：" + (r.error || r.out || "见日志"));
 }
 
+async function handSelftest(btn) {
+  if (!(await uiConfirm("自检手会驱动两只手运动约 12 秒（自动停手桥跑完再重起）。确认手周围无障碍、可以动？"))) return;
+  const out = $("selftest-out");
+  if (out) { out.style.display = "block"; out.textContent = "自检中…（手会动，约 12s）"; }
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("/api/hand/selftest", {});
+    if (!out) return;
+    if (!r.ok) { out.textContent = "✗ " + (r.error || "失败"); return; }
+    let s = r.verdict + "\n\n";
+    for (const side of ["L", "R"]) {
+      const h = r.hands && r.hands[side];
+      if (!h) continue;
+      s += (side === "L" ? "左手" : "右手") + (h.present ? "" : "（无 state！）") + "：\n";
+      for (const m of h.motors) {
+        s += `  motor${m.motor} ${m.group}  Δ=${m.delta}  ${m.ok ? "✓ 动" : "✗ 没动"}\n`;
+      }
+    }
+    out.textContent = s;
+  } finally { if (btn) btn.disabled = false; poll(); }
+}
+
 async function verifyMotors(btn) {
   const out = $("verify-out");
   if (out) { out.style.display = "block"; out.textContent = "验证中…（读 rt/lowcmd vs rt/lowstate）"; }

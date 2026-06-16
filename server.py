@@ -13,6 +13,7 @@ import secrets
 import signal
 import subprocess
 import sys
+import time
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -175,6 +176,38 @@ def run_verify_motors() -> dict:
             return {"ok": False, "error": (p.stdout + p.stderr)[-400:]}
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "验证超时(20s)"}
+
+
+def run_hand_selftest() -> dict:
+    """Drive both hands through each motor group and check the encoder follows.
+    Stops the hand bridge first (needs sole publisher on rt/brainco/*/cmd) and
+    restarts it after. MOVES THE HANDS ~12s."""
+    if not config.VENV_PY.is_file():
+        return {"ok": False, "error": ".venv_teleop 不存在"}
+    robot = checks.find_real_robot_interface()
+    if robot is None:
+        return {"ok": False, "error": "未检测到机器人网接口(192.168.123.x)"}
+    bridge_was = PM.any_alive(("brainco_hand",))
+    if bridge_was:
+        PM.stop("brainco_hand")
+        time.sleep(1.2)
+    res = {"ok": False, "error": "未执行"}
+    try:
+        cmd = [str(config.VENV_PY), str(config.HAND_SELFTEST_PY), robot[0]]
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=45,
+                           cwd=str(config.REPO_ROOT))
+        line = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else "{}"
+        try:
+            res = json.loads(line)
+        except ValueError:
+            res = {"ok": False, "error": (p.stdout + p.stderr)[-400:]}
+    except subprocess.TimeoutExpired:
+        res = {"ok": False, "error": "自检超时(45s)"}
+    finally:
+        if bridge_was:
+            PM.start("brainco_hand")
+            res["bridge_restarted"] = True
+    return res
 
 
 def run_brainco_restart() -> dict:
@@ -368,6 +401,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/brainco/restart":
             self._json(200, run_brainco_restart())
+            return
+        if u.path == "/api/hand/selftest":
+            self._json(200, run_hand_selftest())
             return
         if u.path == "/api/verify/motors":
             self._json(200, run_verify_motors())
