@@ -2,6 +2,9 @@
 logs/
 # wizard step progress (machine state, not source)
 state/
+# helper runtime state (persisted toggles/values, not source)
+helpers/.rec_auto_follow
+helpers/.hand_frozen_release_s
 # python cache
 __pycache__/
 *.pyc

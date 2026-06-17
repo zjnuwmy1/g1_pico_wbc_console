@@ -392,6 +392,18 @@
       </div>
 
       <div class="card">
+        <h3>✋ 灵巧手设置</h3>
+        <div class="row" style="align-items:center;gap:12px">
+          <label for="frz-slider" style="min-width:170px">上半身锁定后松手延时</label>
+          <input type="range" id="frz-slider" min="0" max="10" step="0.5" value="3"
+                 style="flex:1;min-width:160px" oninput="frzLabel(this.value)" onchange="setFrozenRelease(this.value)">
+          <span class="pill ok" id="frz-val" style="min-width:70px;text-align:center">3.0 秒</span>
+        </div>
+        <p class="note">进上半身锁定（手柄 <kbd>B</kbd>+<kbd>Y</kbd>，手臂冻住）后，灵巧手保持抓握这么多秒再自动张开（放下物体）。
+          <strong>0 = 一直保持不松手</strong>。端着走（<kbd>A</kbd>+<kbd>X</kbd>）不受影响。改完即时生效，无需重启手桥。</p>
+      </div>
+
+      <div class="card">
         <h3>🔧 根治：启用 PC2 手服务端自启（一次性，需 PC2 sudo）</h3>
         <p class="hint">手服务端在 PC2 一重启/掉网就死。启用 systemd 后<strong>开机自起 + 崩了 10s 自愈</strong>，从此不用手动重启。
           GUI 无法替你输 sudo 密码，复制到终端跑一次即可：</p>

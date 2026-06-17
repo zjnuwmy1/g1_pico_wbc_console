@@ -73,6 +73,7 @@ function showStep(n) {
   localStorage.setItem("wbc_step", n);
   // auto-load the data viewer the first time you open it
   if (String(n) === "8" && $("ep-sel") && !$("ep-sel").options.length) loadRecordings();
+  if (String(n) === "7") loadFrozenRelease();
 }
 document.querySelectorAll(".step-tab").forEach((t) => {
   t.tabIndex = 0;  // keyboard-reachable
@@ -210,6 +211,22 @@ async function restartHand(btn) {
   // success shows up as the 左/右手q + 触觉 chips turning green within a few seconds
   if (!r.ok) uiToast("重启手服务端失败：" + (r.error || r.out || "见日志"), "warn");
   else uiToast("PC2 手服务端已重启", "ok");
+}
+
+/* ── dexterous-hand: upper-body-LOCK release delay slider (step 7) ── */
+function frzLabel(v) {
+  v = parseFloat(v);
+  const el = $("frz-val");
+  if (el) { el.textContent = v === 0 ? "不松手" : v.toFixed(1) + " 秒"; el.className = "pill " + (v === 0 ? "err" : "ok"); }
+}
+async function loadFrozenRelease() {
+  const r = await fetch("/api/hand/frozen_release").then((x) => x.json()).catch(() => null);
+  if (r && r.ok) { const s = $("frz-slider"); if (s) s.value = r.seconds; frzLabel(r.seconds); }
+}
+async function setFrozenRelease(v) {
+  const r = await api("/api/hand/frozen_release", { seconds: parseFloat(v) });
+  if (r.ok) { frzLabel(r.seconds); uiToast(r.seconds === 0 ? "上半身锁定：手一直保持抓握" : `上半身锁定 ${r.seconds.toFixed(1)} 秒后松手`); }
+  else uiToast("设置失败：" + (r.error || ""), "danger");
 }
 
 async function restartCamera(btn) {

@@ -301,6 +301,38 @@ def run_camera_restart() -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def _frozen_release_file():
+    # same file the hand bridge polles ~1x/s (helpers/.hand_frozen_release_s)
+    return config.BRAINCO_BRIDGE_PY.parent / ".hand_frozen_release_s"
+
+
+def get_frozen_release() -> dict:
+    """Current upper-body-LOCK hand-release delay (s). Default 3.0 if unset."""
+    sec = 3.0
+    try:
+        f = _frozen_release_file()
+        if f.is_file():
+            sec = float(f.read_text().strip())
+    except Exception:
+        pass
+    return {"ok": True, "seconds": sec}
+
+
+def set_frozen_release(seconds) -> dict:
+    """Persist the upper-body-LOCK hand-release delay; the bridge reads it live
+    (no restart). 0 = hold forever (never auto-release in frozen-upper)."""
+    try:
+        s = float(seconds)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "bad seconds"}
+    s = max(0.0, min(60.0, round(s, 1)))
+    try:
+        _frozen_release_file().write_text(f"{s}")
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "seconds": s}
+
+
 # ── checks cache ─────────────────────────────────────────────────────────────
 _checks_cache: dict[str, list] = {}
 
@@ -613,6 +645,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, api_state())
         elif u.path == "/api/recordings":
             self._json(200, api_recordings())
+        elif u.path == "/api/hand/frozen_release":
+            self._json(200, get_frozen_release())
         elif u.path.startswith("/recordings/"):
             self._serve_recording(u.path)
         elif u.path.startswith("/api/logs/"):
@@ -682,6 +716,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/hand/selftest":
             self._json(200, run_hand_selftest())
+            return
+        if u.path == "/api/hand/frozen_release":
+            self._json(200, set_frozen_release(body.get("seconds")))
             return
         if u.path == "/api/verify/motors":
             self._json(200, run_verify_motors())

@@ -76,6 +76,20 @@ HOLD_ON_PLANNER = os.environ.get("WBC_HAND_HOLD_ON_PLANNER", "1") == "1"
 # only in that mode); plain walk-planner does NOT, so carrying-while-walking
 # still holds. <=0 disables (frozen-upper then holds forever like walk).
 FROZEN_RELEASE_S = float(os.environ.get("WBC_HAND_FROZEN_RELEASE_S", "3.0"))
+# Live-tunable from the GUI: the server writes the seconds to this file and the
+# bridge re-reads it ~1x/s, so the slider takes effect without a bridge restart.
+_FRZ_FILE = os.path.join(os.path.dirname(__file__), ".hand_frozen_release_s")
+_release_s = {"v": FROZEN_RELEASE_S}
+
+
+def _load_frozen_release():
+    try:
+        with open(_FRZ_FILE) as f:
+            v = float(f.read().strip())
+        if 0.0 <= v <= 60.0:
+            _release_s["v"] = v
+    except Exception:
+        pass
 STALL_GAP = 0.22          # rad: measured lags command by more -> finger blocked
 STALL_MARGIN = 0.12       # rad: how far beyond the measured q we keep pushing
 STATE_FRESH_S = 0.5       # state older than this -> no clamp (warn once)
@@ -267,10 +281,11 @@ def main():
     signal.signal(signal.SIGTERM, _sigstop)
     signal.signal(signal.SIGINT, _sigstop)
     threading.Thread(target=_zmq_reader, daemon=True).start()
+    _load_frozen_release()   # pick up the GUI-persisted seconds (else env default)
     _thumb_mode = (f"grip->prox + stickY->meta INDEPENDENT({'ON' if _xrt else 'stick OFF!'})"
                    if META_FOLLOW == 0.0 else
                    f"grip->thumb(meta×{META_FOLLOW}+prox)+stickY trim({'ON' if _xrt else 'OFF'})")
-    _frz = f" [upper-body LOCK -> release after {FROZEN_RELEASE_S:.0f}s]" if FROZEN_RELEASE_S > 0 else ""
+    _frz = f" [upper-body LOCK -> release after {_release_s['v']:.1f}s]" if _release_s["v"] > 0 else " [upper-body LOCK -> hold forever]"
     print(f"[brainco-bridge] running (iface={iface}) | {_thumb_mode} trigger->fingers | "
           f"slew {MAX_RATE}/s | max_close {MAX_CLOSE} | "
           f"stall clamp gap {STALL_GAP}rad margin {STALL_MARGIN}rad | "
@@ -284,6 +299,9 @@ def main():
     try:
         while _running["on"]:
             now = time.monotonic()
+            if dbg % 100 == 0:               # ~1x/s: pick up GUI slider changes live
+                _load_frozen_release()
+            frz = _release_s["v"]
             pose_stale = (now - _last_rx["t"]) > STALE_S
             streamer_alive = (now - _last_any_rx["t"]) < STALE_S
             # upper-body LOCK active = frozen-upper planner msgs arriving right now
@@ -297,7 +315,7 @@ def main():
                 mode = "track"
             elif not (streamer_alive and HOLD_ON_PLANNER):
                 mode = "open"                # streamer gone / E-stop -> safety open
-            elif frozen_active and FROZEN_RELEASE_S > 0 and (now - _frozen["since"]) >= FROZEN_RELEASE_S:
+            elif frozen_active and frz > 0 and (now - _frozen["since"]) >= frz:
                 mode = "open"                # upper-body lock held N s -> release / place
             else:
                 mode = "hold"                # frozen-upper within N s, or walk-planner
@@ -305,12 +323,12 @@ def main():
                 if mode == "track":
                     _m = "input live"
                 elif mode == "hold":
-                    _m = (f"upper-body LOCK -> holding grasp, release in {FROZEN_RELEASE_S:.0f}s"
-                          if (frozen_active and FROZEN_RELEASE_S > 0)
+                    _m = (f"upper-body LOCK -> holding grasp, release in {frz:.1f}s"
+                          if (frozen_active and frz > 0)
                           else "left POSE -> HOLDING last grasp (streamer up)")
                 else:  # open
                     _m = ("upper-body LOCK held -> RELEASING hands"
-                          if (frozen_active and FROZEN_RELEASE_S > 0)
+                          if (frozen_active and frz > 0)
                           else "input STALE -> auto-opening hands")
                 print(f"[brainco-bridge] {_m}{' | axes mode' if _have_axes['v'] else ''}", flush=True)
                 last_mode = mode
