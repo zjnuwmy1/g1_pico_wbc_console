@@ -212,6 +212,16 @@ async function restartHand(btn) {
   else uiToast("PC2 手服务端已重启", "ok");
 }
 
+async function restartCamera(btn) {
+  const old = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "重启中…(~6s)"; }
+  const r = await api("/api/camera/restart", {});
+  if (btn) { btn.disabled = false; btn.textContent = old; }
+  // success: the 相机/深度 chips resume + "⚠相机冻帧" clears within a few seconds
+  if (!r.ok) uiToast("重启相机失败：" + (r.error || r.out || "见日志"), "warn");
+  else uiToast("PC2 相机服务已重启，几秒后画面恢复", "ok");
+}
+
 async function handSelftest(btn) {
   if (!(await uiConfirm("自检手会驱动两只手运动约 12 秒（自动停手桥跑完再重起）。确认手周围无障碍、可以动？"))) return;
   const out = $("selftest-out");

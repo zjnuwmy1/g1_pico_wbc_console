@@ -384,9 +384,10 @@
           <span class="srcdot" id="src-rhand">右手q</span>
           <span class="srcdot" id="src-ltouch">左触觉</span>
           <span class="srcdot" id="src-rtouch">右触觉</span>
-          <button class="btn" onclick="restartHand(this)" style="margin-left:auto">↻ 重启手服务端(PC2)</button>
+          <button class="btn" onclick="restartCamera(this)" style="margin-left:auto" title="相机冻帧时重启 PC2 image-server 服务">↻ 重启相机(PC2)</button>
+          <button class="btn" onclick="restartHand(this)">↻ 重启手服务端(PC2)</button>
         </div>
-        <p class="warn" style="margin-top:4px">启动后端后看上面 8 个灯：灰=该路没数据。<strong>PICO动作</strong>灰=头显没流；<strong>触觉/手q</strong>灰=PC2 手服务端没跑（点右边重启）。落盘 <code>recordings/</code>。</p>
+        <p class="warn" style="margin-top:4px">启动后端后看上面 8 个灯：灰=该路没数据。<strong>相机</strong>变 <b>⚠相机冻帧</b>=画面卡住（点「重启相机」）；<strong>PICO动作</strong>灰=头显没流；<strong>触觉/手q</strong>灰=PC2 手服务端没跑（点重启）。落盘 <code>recordings/</code>。</p>
         <pre class="logpane small collapsed" id="log-recorder" onclick="this.classList.toggle('collapsed')"></pre>
       </div>
 

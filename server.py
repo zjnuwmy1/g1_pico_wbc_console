@@ -281,6 +281,26 @@ def run_brainco_restart() -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def run_camera_restart() -> dict:
+    """Restart the PC2 head-camera image server (systemd pc2-image-server.service,
+    runs pc2_image_server_with_depth.py --rs). Recovery for a frozen camera feed:
+    the RealSense/USB or the server wedges and keeps re-publishing the same frame.
+    systemctl restart kills the whole CGroup (parent + worker) and reopens the
+    RealSense; ZMQ subscribers (recorder/deploy) reconnect to the fresh PUB."""
+    remote = ("echo 123 | sudo -S systemctl restart pc2-image-server.service 2>/dev/null; "
+              "sleep 3; systemctl is-active pc2-image-server.service; "
+              "pgrep -f '[p]c2_image_server_with_depth' >/dev/null && echo CAMERA_ALIVE")
+    cmd = ["ssh", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes", "g1pc2", remote]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+        out = (p.stdout + p.stderr).strip()[-500:]
+        return {"ok": "CAMERA_ALIVE" in p.stdout, "out": out}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "ssh PC2 超时（PC2 在线吗？）"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # ── checks cache ─────────────────────────────────────────────────────────────
 _checks_cache: dict[str, list] = {}
 
@@ -653,6 +673,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/brainco/restart":
             self._json(200, run_brainco_restart())
+            return
+        if u.path == "/api/camera/restart":
+            self._json(200, run_camera_restart())
             return
         if u.path == "/api/brainco/ensure":
             self._json(200, run_brainco_ensure())
