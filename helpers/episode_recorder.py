@@ -321,15 +321,17 @@ def _stop_episode(save=True, min_frames=1):
         "info": {
             "version": "0.1.0", "fps": FPS, "iface": IFACE,
             "cameras": [k for k in ("head", "depth") if have.get(k)],
-            "action_keys": ["vr_position", "vr_orientation", "left_trigger",
-                            "right_trigger", "left_grip", "right_grip",
-                            "left_hand_joints", "right_hand_joints"],
+            "action_keys": list(_ACT_KEYS),
             "state_keys": ["joint_q", "joint_dq", "imu_quat", "imu_gyro",
                            "left_hand_q", "right_hand_q"],
             "tactile_keys": ["normal_force", "tangential_force", "tangential_direction",
                              "self_proximity", "mutual_proximity", "status"],
             "tactile_layout": "BrainCo Revo2, 5 fingers [thumb,index,middle,ring,pinky] flattened; 65/hand",
             "vr_3point": "[L-wrist,R-wrist,Neck] pos(9)+quat_wxyz(12), root frame",
+            "wbc_lowerbody": "legs/locomotion command (v3 SMPL encoder): smpl_joints"
+            " (24x3, feet 22-23 from ankle trackers) + body_quat_w (root quat) +"
+            " heading_increment (yaw turn). joint_pos is wrist-only. Fields stored"
+            " flat; reshape per upstream pico_manager_thread_server.py.",
         },
         "text": {"goal": _session["goal"]},
         "data": _ep["data"],
@@ -353,8 +355,19 @@ def _have_sources():
                 "rtouch": _latest["rtouch"] is not None}
 
 
+# The teleop COMMAND (Option-A action). Upper body = vr 3-point + hands. The
+# LOWER body / locomotion is NOT in joint_pos (wrist-only zeros) — in live PICO
+# v3 the deploy's SMPL encoder drives the legs from smpl_joints (24-joint SMPL
+# incl. feet 22-23 from the 2 ankle trackers) + body_quat_w (root orientation) +
+# heading_increment (joystick turn). Those MUST be recorded or every whole-body
+# demo silently loses its stepping/turn/weight-shift command. smpl_pose +
+# joint_pos + frame_index are kept too so an episode can be re-streamed straight
+# through the deploy's v3 ZMQ endpoint (true replay), not just learned from.
 _ACT_KEYS = ("vr_position", "vr_orientation", "left_trigger", "right_trigger",
-             "left_grip", "right_grip", "left_hand_joints", "right_hand_joints")
+             "left_grip", "right_grip", "left_hand_joints", "right_hand_joints",
+             # whole-body / lower-body teleop command (ankle trackers -> SMPL):
+             "smpl_joints", "body_quat_w", "heading_increment",
+             "smpl_pose", "joint_pos", "frame_index")
 
 
 def _write_frame():
