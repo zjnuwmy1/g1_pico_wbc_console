@@ -428,11 +428,15 @@
       <h2>步骤 8 · 数据查看</h2>
       <p class="warn">浏览录好的 episode：拖动滑条看每帧 <strong>头相机 RGB</strong> + 该帧的动作/触觉/阶段。数据在 <code>recordings/</code>。</p>
       <div class="card">
-        <div class="row" style="align-items:center">
-          <button class="btn" onclick="loadRecordings()">刷新列表</button>
-          <label>选择：<select id="ep-sel" onchange="openEpisode()" style="min-width:280px"></select></label>
+        <div class="row" style="align-items:center;justify-content:space-between">
+          <h3 style="margin:0">录制总览 · 文件管理</h3>
+          <button class="btn" onclick="loadRecordings()">刷新</button>
         </div>
-        <div id="ep-info" class="warn" style="margin-top:6px">点「刷新列表」加载。</div>
+        <div id="ep-info" class="note" style="margin:6px 0">点「刷新」加载，查看每条录了什么、占多大盘，可删除。</div>
+        <div id="rec-overview"></div>
+        <div class="row" style="margin-top:10px">
+          <label>查看某条：<select id="ep-sel" onchange="openEpisode()" style="min-width:280px"></select></label>
+        </div>
       </div>
       <div class="card">
         <img id="ep-frame" alt="(选一条 episode)" style="max-width:640px;width:100%;background:#000;border-radius:6px;display:block">

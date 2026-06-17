@@ -261,24 +261,72 @@ document.addEventListener("keydown", (ev) => {
 
 /* ── data viewer (step 8): browse recorded episodes ── */
 let _epData = null, _epPath = "";
+function fmtBytes(b) {
+  b = b || 0;
+  if (b >= 1e9) return (b / 1e9).toFixed(2) + "GB";
+  if (b >= 1e6) return (b / 1e6).toFixed(1) + "MB";
+  if (b >= 1e3) return (b / 1e3).toFixed(0) + "KB";
+  return b + "B";
+}
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 async function loadRecordings() {
   const r = await fetch("/api/recordings").then((x) => x.json()).catch(() => null);
-  const sel = $("ep-sel");
+  const sel = $("ep-sel"), ov = $("rec-overview");
   if (!r || !r.sessions || !r.sessions.length) {
-    sel.innerHTML = "<option>（暂无录制）</option>"; $("ep-info").textContent = "recordings/ 里还没有 episode。"; return;
+    if (sel) sel.innerHTML = "<option>（暂无录制）</option>";
+    if (ov) ov.innerHTML = "<div class='hint'>recordings/ 里还没有 episode。</div>";
+    $("ep-info").textContent = "recordings/ 里还没有 episode。";
+    return;
   }
-  let html = "", total = 0;
+  // dropdown drives the frame viewer
+  let opt = "", total = 0, tBytes = 0, tFrames = 0;
   for (const s of r.sessions) for (const e of s.episodes) {
-    total++;
-    html += `<option value="/recordings/${s.session}/${e.name}">${s.session} / ${e.name} · ${e.frames}帧 · ${e.goal || "?"}</option>`;
+    total++; tBytes += e.bytes || 0; tFrames += e.frames || 0;
+    opt += `<option value="${e.path}">${s.session} / ${e.name} · ${e.frames}帧</option>`;
   }
-  sel.innerHTML = html;
+  if (sel) sel.innerHTML = opt;
+  // overview: per-session table of what was recorded + delete controls
+  let html = `<div class="note" style="margin-bottom:8px">共 <b>${total}</b> episode / ${r.sessions.length} 会话 · ${tFrames} 帧 · 占盘 <b>${fmtBytes(tBytes)}</b></div>`;
+  for (const s of r.sessions) {
+    html += `<div class="rec-sess"><div class="row" style="justify-content:space-between;align-items:center">
+      <strong>📁 ${esc(s.session)}</strong>
+      <span class="hint">${s.count} 条 · ${s.frames} 帧 · ${fmtBytes(s.bytes)}
+      &nbsp;<button class="btn" onclick="delRecording('${s.episodes[0] ? "/recordings/" + s.session : ""}','整个会话 ${esc(s.session)}（${s.count} 条）')">🗑 删会话</button></span></div>
+      <table class="rec-tbl"><thead><tr><th>ep</th><th>目标</th><th>帧</th><th>时长</th><th>大小</th><th>模态</th><th>阶段</th><th></th></tr></thead><tbody>`;
+    for (const e of s.episodes) {
+      const mods = [(e.cameras || []).includes("head") ? "RGB" : "", (e.cameras || []).includes("depth") ? "D" : "", e.state ? "本体" : "", e.touch ? "触" : ""].filter(Boolean).join("·");
+      html += `<tr>
+        <td>${e.name.replace("episode_", "#")}</td>
+        <td>${esc(e.goal) || "—"}</td>
+        <td>${e.frames}</td>
+        <td>${e.seconds || 0}s</td>
+        <td>${fmtBytes(e.bytes)}</td>
+        <td>${mods || "—"}</td>
+        <td>${e.stages > 1 ? e.stages + "段" : "未标"}</td>
+        <td style="white-space:nowrap"><button class="btn" onclick="openEpisodePath('${e.path}')">打开</button>
+        <button class="btn" onclick="delRecording('${e.path}','${esc(s.session)}/${esc(e.name)}（${e.frames}帧）')">🗑</button></td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
+  if (ov) ov.innerHTML = html;
   $("ep-info").textContent = `共 ${total} 条 episode（${r.sessions.length} 个会话）。`;
-  openEpisode();
+  if (sel && sel.value) openEpisodePath(sel.value);
 }
-async function openEpisode() {
-  const path = $("ep-sel").value;
+async function delRecording(path, label) {
+  if (!path) return;
+  if (!(await uiConfirm(`删除 ${label}？\n\n文件将从磁盘永久删除，不可恢复。`))) return;
+  const r = await api("/api/recordings/delete", { path });
+  if (r.ok) {
+    if (_epPath && (_epPath === path || _epPath.startsWith(path + "/"))) { _epData = null; _epPath = ""; const im = $("ep-frame"); if (im) im.removeAttribute("src"); }
+    uiToast("已删除 " + label);
+    loadRecordings();
+  } else uiToast("删除失败：" + (r.error || "未知"), "danger");
+}
+function openEpisode() { openEpisodePath($("ep-sel").value); }
+async function openEpisodePath(path) {
   if (!path || path[0] !== "/") return;
+  const sel = $("ep-sel"); if (sel && sel.value !== path) sel.value = path;
   _epPath = path;
   const d = await fetch(`${path}/data.json`).then((x) => x.json()).catch(() => null);
   if (!d || !d.data) { $("ep-info").textContent = "读取 data.json 失败"; return; }

@@ -10,6 +10,7 @@ import atexit
 import json
 import mimetypes
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -359,29 +360,80 @@ def api_state() -> dict:
     }
 
 
+def _dir_size(path) -> int:
+    total = 0
+    for p in path.rglob("*"):
+        if p.is_file():
+            try:
+                total += p.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
 def api_recordings() -> dict:
-    """List recorded sessions and their episodes (for the data viewer)."""
+    """List recorded sessions + episodes for the data viewer / overview, with
+    enough metadata to see what was recorded at a glance (frames, duration,
+    on-disk size, which modalities, whether stage-annotated)."""
     base = config.RECORDINGS_DIR
     sessions = []
     if base.is_dir():
         for sess in sorted([p for p in base.iterdir() if p.is_dir()], reverse=True):
-            eps = []
+            eps, s_bytes = [], 0
             for ep in sorted([p for p in sess.iterdir() if p.is_dir()
                               and p.name.startswith("episode_")]):
-                info = {"name": ep.name, "frames": 0, "goal": "", "cameras": []}
+                info = {"name": ep.name,
+                        "path": f"/recordings/{sess.name}/{ep.name}",
+                        "frames": 0, "goal": "", "cameras": [], "seconds": 0.0,
+                        "bytes": 0, "touch": False, "state": False, "stages": 1}
                 dj = ep / "data.json"
                 if dj.is_file():
                     try:
                         d = json.loads(dj.read_text())
-                        info["frames"] = len(d.get("data", []))
+                        data = d.get("data", [])
+                        meta = d.get("info", {})
+                        info["frames"] = len(data)
                         info["goal"] = d.get("text", {}).get("goal", "")
-                        info["cameras"] = d.get("info", {}).get("cameras", [])
+                        info["cameras"] = meta.get("cameras", [])
+                        fps = float(meta.get("fps", 30)) or 30.0
+                        info["seconds"] = round(len(data) / fps, 1)
+                        info["touch"] = any(f.get("tactile") for f in data)
+                        info["state"] = any(f.get("state") for f in data)
+                        info["stages"] = len({f.get("stage", 0) for f in data}) or 1
                     except Exception:
                         pass
+                b = _dir_size(ep)
+                info["bytes"] = b
+                s_bytes += b
                 eps.append(info)
             if eps:
-                sessions.append({"session": sess.name, "episodes": eps})
+                sessions.append({"session": sess.name, "episodes": eps,
+                                 "count": len(eps),
+                                 "frames": sum(e["frames"] for e in eps),
+                                 "bytes": s_bytes})
     return {"ok": True, "sessions": sessions}
+
+
+def delete_recording(rel_path: str) -> dict:
+    """Permanently delete an episode (or a whole session) directory under
+    recordings/. Path is resolved and must sit strictly inside RECORDINGS_DIR —
+    the root itself and any path escaping it are refused."""
+    if not rel_path.startswith("/recordings/"):
+        return {"ok": False, "error": "bad path"}
+    sub = rel_path[len("/recordings/"):].strip("/")
+    if not sub:
+        return {"ok": False, "error": "拒绝删除 recordings 根目录"}
+    root = config.RECORDINGS_DIR.resolve()
+    target = (config.RECORDINGS_DIR / sub).resolve()
+    if target == root or root not in target.parents:
+        return {"ok": False, "error": "bad path"}
+    if not target.is_dir():
+        return {"ok": False, "error": "目录不存在"}
+    try:
+        shutil.rmtree(target)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "deleted": rel_path}
 
 
 def apply_annotation(rel_path: str, boundaries: list) -> dict:
@@ -584,6 +636,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/recordings/export":
             self._json(200, export_episode_mp4(body.get("path", ""), body.get("kind", "head")))
+            return
+        if u.path == "/api/recordings/delete":
+            self._json(200, delete_recording(body.get("path", "")))
             return
         if u.path == "/api/record":
             # relay episode-recorder control to the recorder process via its stdin

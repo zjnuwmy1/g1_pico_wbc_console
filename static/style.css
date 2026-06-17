@@ -106,6 +106,14 @@ input[type="text"] { background: #0b0e13; border: 1px solid var(--line); color: 
 .dmid { display: flex; align-items: center; justify-content: center;
   font-size: 12px; color: var(--dim); border: 1px dashed #38465a; border-radius: 8px; }
 
+/* step-8 recordings overview table */
+.rec-sess { margin: 4px 0 16px; }
+.rec-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 6px; }
+.rec-tbl th, .rec-tbl td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.rec-tbl th { color: var(--dim); font-weight: 600; }
+.rec-tbl tbody tr:hover td { background: #ffffff0a; }
+.rec-tbl .btn { padding: 3px 9px; font-size: 12px; }
+
 /* step-7 data-source readiness chips (lit from the recorder's STATUS src list) */
 .srcdot { display:inline-block; padding:3px 9px; border-radius:11px; font-size:12px;
   background:#3a2a2a; color:#c8a0a0; border:1px solid #5a3a3a; }
