@@ -342,6 +342,23 @@ function showFrame(i) {
   $("ep-frame-info").textContent = s;
 }
 function frameStep(d) { if (_epData) showFrame((parseInt($("ep-slider").value) || 0) + d); }
+async function exportMp4() {
+  if (!_epPath) { uiToast("先选一条 episode", "warn"); return; }
+  const btn = $("ep-export"), label = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "导出中…"; }
+  uiToast("正在用 ffmpeg 编码 MP4…（按帧数,几秒）");
+  const r = await api("/api/recordings/export", { path: _epPath });
+  if (btn) { btn.disabled = false; btn.textContent = label || "⬇ 导出 MP4"; }
+  if (r.ok) {
+    const a = document.createElement("a");
+    a.href = r.url;                                         // /recordings/<sess>/<ep>/head.mp4
+    a.download = _epPath.split("/").slice(-2).join("_") + ".mp4";  // <sess>_<ep>.mp4
+    document.body.appendChild(a); a.click(); a.remove();
+    uiToast(`已导出 ${(r.size / 1e6).toFixed(1)}MB @ ${r.fps}fps，开始下载`);
+  } else {
+    uiToast("导出失败：" + (r.error || "未知"), "danger");
+  }
+}
 
 /* ── in-page confirm modal ── the native confirm() can be permanently
    suppressed by the browser ("阻止此页面再创建对话框"), which makes every

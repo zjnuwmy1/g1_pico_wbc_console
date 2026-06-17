@@ -418,6 +418,44 @@ def apply_annotation(rel_path: str, boundaries: list) -> dict:
     return {"ok": True, "frames": len(d.get("data", [])), "boundaries": len(bs)}
 
 
+def export_episode_mp4(rel_path: str) -> dict:
+    """ffmpeg-encode an episode's head-camera JPEG sequence into an MP4 for
+    download. Frames are contiguous 000000.._head.jpg, so the image2 demuxer
+    reads them straight. Writes <episode>/head.mp4 and returns its /recordings
+    URL (served by _serve_recording as video/mp4)."""
+    if not rel_path.startswith("/recordings/"):
+        return {"ok": False, "error": "bad path"}
+    ep = (config.RECORDINGS_DIR / rel_path[len("/recordings/"):]).resolve()
+    if not str(ep).startswith(str(config.RECORDINGS_DIR.resolve())) or not ep.is_dir():
+        return {"ok": False, "error": "bad path"}
+    frames = ep / "frames"
+    if not frames.is_dir() or not any(frames.glob("*_head.jpg")):
+        return {"ok": False, "error": "该 episode 没有 head 帧可导出"}
+    # input framerate from data.json (default 30) so playback matches capture
+    fps = 30.0
+    dj = ep / "data.json"
+    if dj.is_file():
+        try:
+            fps = float(json.loads(dj.read_text()).get("info", {}).get("fps", 30)) or 30.0
+        except Exception:
+            pass
+    out = ep / "head.mp4"
+    cmd = ["ffmpeg", "-y", "-framerate", f"{fps:g}",
+           "-i", str(frames / "%06d_head.jpg"),
+           "-c:v", "libx264", "-pix_fmt", "yuv420p",
+           "-movflags", "+faststart", str(out)]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except FileNotFoundError:
+        return {"ok": False, "error": "ffmpeg 未安装（apt install ffmpeg）"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "ffmpeg 编码超时"}
+    if p.returncode != 0 or not out.is_file():
+        return {"ok": False, "error": "ffmpeg 失败：" + (p.stderr or "")[-300:]}
+    return {"ok": True, "url": rel_path + "/head.mp4",
+            "size": out.stat().st_size, "fps": fps}
+
+
 # ── HTTP handler ─────────────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
@@ -524,6 +562,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/recordings/annotate":
             self._json(200, apply_annotation(body.get("path", ""), body.get("boundaries", [])))
+            return
+        if u.path == "/api/recordings/export":
+            self._json(200, export_episode_mp4(body.get("path", "")))
             return
         if u.path == "/api/record":
             # relay episode-recorder control to the recorder process via its stdin
