@@ -258,6 +258,29 @@ _ep = {"active": False, "dir": None, "idx": -1, "frame": 0, "stage": 0,
        "stage_label": "", "data": []}
 _session = {"dir": None, "count": 0, "goal": ""}
 _auto = {"on": False, "last_fresh": 0.0}   # auto-follow-POSE recording
+# persist the auto-follow toggle so a recorder restart (camera/DDS recovery,
+# crash) doesn't silently disable it — otherwise POSE segments stop recording
+# until the operator re-ticks the box, which is easy to miss.
+_AUTO_STATE_FILE = os.path.join(os.path.dirname(__file__), ".rec_auto_follow")
+
+
+def _save_auto_state():
+    try:
+        with open(_AUTO_STATE_FILE, "w") as f:
+            f.write("1" if _auto["on"] else "0")
+    except Exception:
+        pass
+
+
+def _load_auto_state():
+    try:
+        with open(_AUTO_STATE_FILE) as f:
+            if f.read().strip() == "1":
+                _auto["on"] = True
+                _auto["last_fresh"] = time.monotonic()
+                _log("AUTO follow-POSE restored = ON (persisted across restart)")
+    except Exception:
+        pass
 
 
 def _ensure_session():
@@ -403,6 +426,7 @@ def _apply_ctrl(d):
     elif cmd == "auto":
         _auto["on"] = bool(d.get("on", True))
         _auto["last_fresh"] = time.monotonic()
+        _save_auto_state()
         _log(f"AUTO follow-POSE = {'ON' if _auto['on'] else 'off'}"
              f"（POSE 模式自动录，切走自动停存）")
         if not _auto["on"] and _ep["active"]:
@@ -413,6 +437,7 @@ def _apply_ctrl(d):
 
 def main():
     _log(f"recorder starting (iface={IFACE}, fps={FPS}, dir={os.path.abspath(REC_DIR)})")
+    _load_auto_state()
     threading.Thread(target=_pose_thread, daemon=True).start()
     threading.Thread(target=_img_thread, args=(COLOR_PORT, "color"), daemon=True).start()
     threading.Thread(target=_img_thread, args=(DEPTH_PORT, "depth"), daemon=True).start()

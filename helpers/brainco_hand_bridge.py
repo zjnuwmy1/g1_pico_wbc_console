@@ -19,10 +19,13 @@ error, so clamping the error clamps the current):
     resumes tracking. Opening is never clamped.
   * SLEW LIMIT — commanded closedness changes at most MAX_RATE per second.
   * MAX_CLOSE — hard cap on closedness (env WBC_HAND_MAX_CLOSE, default 1.0).
-  * STALENESS — no pose for STALE_S (streamer stopped / E-stop / PLANNER mode):
-    ramp OPEN gently at STALE_OPEN_RATE instead of freezing clenched. The GUI
-    E-stop SIGINTs the streamer but leaves this bridge running on purpose —
-    the stale path is what opens the hands.
+  * NO POSE — when 'pose' stops there are two cases: (a) the streamer is still
+    up (planner/command still arriving on 5556, e.g. operator switched POSE ->
+    frozen-upper / walk-planner) -> HOLD the last grasp so an object can be
+    carried while walking; (b) the streamer is truly gone (GUI E-stop SIGINTs it
+    / crash -> 5556 silent for STALE_S) -> ramp OPEN gently at STALE_OPEN_RATE.
+    The GUI E-stop kills the streamer on purpose so the hands open.
+    (WBC_HAND_HOLD_ON_PLANNER=0 restores the old always-open-on-no-pose path.)
 
 NOTE exactly ONE bridge instance may run: two publishers on rt/brainco/*/cmd
 fight each other (verified: a stale bridge holding "open" cancels test grasps).
@@ -57,6 +60,11 @@ RATE_HZ = 100.0
 MAX_RATE = 2.5            # closedness units/s while tracking (full close ~0.4s)
 STALE_S = 1.0             # no pose for this long -> input considered lost
 STALE_OPEN_RATE = 0.3     # closedness units/s auto-open when stale (~3s gentle)
+# When pose stops but the streamer is STILL alive (sending planner/command, e.g.
+# operator switched POSE -> frozen-upper / walk-planner), HOLD the last grasp so
+# you can carry an object while walking, instead of auto-opening. Only a truly
+# dead streamer (E-stop SIGINTs it / crash) -> silence on 5556 -> auto-open.
+HOLD_ON_PLANNER = os.environ.get("WBC_HAND_HOLD_ON_PLANNER", "1") == "1"
 STALL_GAP = 0.22          # rad: measured lags command by more -> finger blocked
 STALL_MARGIN = 0.12       # rad: how far beyond the measured q we keep pushing
 STATE_FRESH_S = 0.5       # state older than this -> no clamp (warn once)
@@ -71,7 +79,8 @@ _hands = {"L": None, "R": None}
 # Both analog 0..1 -> pinch (grip only), hook (trigger only), full grasp (both).
 _axes = {"L": {"trigger": 0.0, "grip": 0.0}, "R": {"trigger": 0.0, "grip": 0.0}}
 _have_axes = {"v": False}   # pose stream carries trigger/grip fields
-_last_rx = {"t": 0.0}
+_last_rx = {"t": 0.0}       # last 'pose' message (drives fingers)
+_last_any_rx = {"t": 0.0}   # last message of ANY topic = streamer still alive
 _state = {"L": None, "R": None}          # measured q[6] (rad)
 _state_rx = {"L": 0.0, "R": 0.0}
 _running = {"on": True}
@@ -116,15 +125,20 @@ def _zmq_reader():
     ctx = zmq.Context()
     s = ctx.socket(zmq.SUB)
     s.connect("tcp://localhost:5556")
-    s.setsockopt(zmq.SUBSCRIBE, b"pose")
+    # subscribe to ALL topics: 'pose' drives the fingers; 'planner'/'command'
+    # don't, but their arrival proves the streamer is alive (-> HOLD not OPEN).
+    s.setsockopt(zmq.SUBSCRIBE, b"")
     s.setsockopt(zmq.RCVTIMEO, 1000)
     while _running["on"]:
         try:
-            _parse_pose(s.recv())
+            msg = s.recv()
         except zmq.Again:
             continue
         except Exception:
             time.sleep(0.1)
+            continue
+        _last_any_rx["t"] = time.monotonic()
+        _parse_pose(msg)
 
 
 META_I, PROX_I = 0, 1      # thumb_metacarpal (sweep/opposition), thumb_proximal (curl)
@@ -235,22 +249,36 @@ def main():
     print(f"[brainco-bridge] running (iface={iface}) | {_thumb_mode} trigger->fingers | "
           f"slew {MAX_RATE}/s | max_close {MAX_CLOSE} | "
           f"stall clamp gap {STALL_GAP}rad margin {STALL_MARGIN}rad | "
-          f"stale>{STALE_S}s -> open {STALE_OPEN_RATE}/s", flush=True)
+          f"left-POSE: {'HOLD grasp' if HOLD_ON_PLANNER else 'open'} while streamer up, "
+          f"open {STALE_OPEN_RATE}/s when streamer gone", flush=True)
 
     dt = 1.0 / RATE_HZ
-    dbg, was_stale = 0, False
+    dbg, last_mode = 0, None
     warned_nofb = {"L": False, "R": False}
     stalled_n = {"L": 0, "R": 0}
     try:
         while _running["on"]:
             now = time.monotonic()
-            stale = (now - _last_rx["t"]) > STALE_S
-            if stale != was_stale:
-                print(f"[brainco-bridge] {'input STALE -> auto-opening hands' if stale else 'input live'}"
-                      f"{' | axes mode' if _have_axes['v'] else ''}", flush=True)
-                was_stale = stale
+            pose_stale = (now - _last_rx["t"]) > STALE_S
+            streamer_alive = (now - _last_any_rx["t"]) < STALE_S
+            # track pose | HOLD last grasp (left POSE but streamer still streaming,
+            # e.g. frozen-upper / walk) | OPEN (streamer gone / E-stop) for safety.
+            if not pose_stale:
+                mode = "track"
+            elif streamer_alive and HOLD_ON_PLANNER:
+                mode = "hold"
+            else:
+                mode = "open"
+            if mode != last_mode:
+                _m = {"track": "input live",
+                      "hold": "left POSE -> HOLDING last grasp (streamer still up)",
+                      "open": "input STALE -> auto-opening hands"}[mode]
+                print(f"[brainco-bridge] {_m}{' | axes mode' if _have_axes['v'] else ''}", flush=True)
+                last_mode = mode
             for side in ("L", "R"):
-                if stale:
+                if mode == "hold":
+                    pass  # freeze cmd/meta_off at last POSE values; clamp+publish below
+                elif mode == "open":
                     for g in (0, 1, 2):
                         cmd[side][g] = max(0.0, cmd[side][g] - STALE_OPEN_RATE * dt)
                     # decay the stick trim too so a fresh session starts neutral
@@ -304,7 +332,7 @@ def main():
                       f"R={cmd['R'][0]:.2f}/{cmd['R'][1]:.2f}/{cmd['R'][2]:.2f} | "
                       f"stickY L={stick_raw['L']:+.2f} R={stick_raw['R']:+.2f} "
                       f"off L={meta_off['L']:+.2f} R={meta_off['R']:+.2f}"
-                      f"{' (stale)' if stale else ''}{extra}", flush=True)
+                      f"{' ('+mode+')' if mode != 'track' else ''}{extra}", flush=True)
             time.sleep(dt)
     except KeyboardInterrupt:
         pass
