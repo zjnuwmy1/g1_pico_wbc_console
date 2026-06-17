@@ -43,6 +43,7 @@ import struct
 import sys
 import threading
 import time
+import urllib.request
 
 import zmq
 
@@ -258,6 +259,31 @@ _ep = {"active": False, "dir": None, "idx": -1, "frame": 0, "stage": 0,
        "stage_label": "", "data": []}
 _session = {"dir": None, "count": 0, "goal": ""}
 _auto = {"on": False, "last_fresh": 0.0}   # auto-follow-POSE recording
+# Auto-recover a frozen camera. The PC2 RealSense/image_server sometimes hangs
+# (frames stop changing) WITHOUT the process dying, so systemd never restarts it
+# (verified: NRestarts=0 while CAM_FROZEN persisted for hours). When the head
+# frame has been frozen long enough we ask the console to restart the PC2 camera
+# service; a cooldown prevents restart loops.
+CAM_AUTO_RESTART = os.environ.get("REC_CAM_AUTO_RESTART", "1") == "1"
+CAM_FROZEN_S = 2.0          # color content unchanged this long => frozen
+CAM_RESTART_AFTER = 6.0     # frozen at least this long => auto-restart
+CAM_RESTART_COOLDOWN = 30.0 # min seconds between auto-restarts
+CONSOLE_URL = os.environ.get("REC_CONSOLE_URL", "http://127.0.0.1:8090")
+_cam = {"last_restart": 0.0}
+
+
+def _trigger_camera_restart():
+    """Ask the console to restart the PC2 camera service (ssh+systemctl, ~6s).
+    Fired in a daemon thread so the 30 Hz record loop never blocks on it."""
+    def _do():
+        try:
+            urllib.request.urlopen(
+                urllib.request.Request(CONSOLE_URL + "/api/camera/restart",
+                                       data=b"{}", method="POST"), timeout=50)
+            _log("auto camera-restart request sent")
+        except Exception as e:
+            _log(f"auto camera-restart request failed: {e}")
+    threading.Thread(target=_do, daemon=True).start()
 # persist the auto-follow toggle so a recorder restart (camera/DDS recovery,
 # crash) doesn't silently disable it — otherwise POSE segments stop recording
 # until the operator re-ticks the box, which is easy to miss.
@@ -484,12 +510,19 @@ def main():
         if now - last_status >= 1.0:
             have = _have_sources()
             srcs = ",".join(k for k, v in have.items() if v) or "none"
-            # camera-frozen detector: frame content hasn't changed in >2s while a
-            # camera is connected => silently recording duplicate frames (bad data)
+            # camera-frozen detector: frame content hasn't changed in >CAM_FROZEN_S
+            # while a camera is connected => silently recording duplicate frames.
             with _lock:
-                cam_frozen = (_latest["color"] is not None
-                              and (now - _latest["color_chg"]) > 2.0)
-            cam = " CAM_FROZEN!" if cam_frozen else ""
+                froze_for = (now - _latest["color_chg"]) if _latest["color"] is not None else 0.0
+            cam_frozen = froze_for > CAM_FROZEN_S
+            cam = f" CAM_FROZEN!({froze_for:.0f}s)" if cam_frozen else ""
+            # self-heal: frozen long enough (and cooldown elapsed) -> auto-restart
+            # the PC2 camera service (RealSense USB hang; process stays alive).
+            if (cam_frozen and CAM_AUTO_RESTART and froze_for > CAM_RESTART_AFTER
+                    and (now - _cam["last_restart"]) > CAM_RESTART_COOLDOWN):
+                _cam["last_restart"] = now
+                _log(f"CAM_FROZEN {froze_for:.0f}s -> auto-restarting PC2 camera service")
+                _trigger_camera_restart()
             _log(f"STATUS rec={'ON' if _ep['active'] else 'off'} "
                  f"auto={'ON' if _auto['on'] else 'off'} "
                  f"pose={'POSE' if pose_fresh else '-'}{cam} "
