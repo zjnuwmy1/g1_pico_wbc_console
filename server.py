@@ -418,11 +418,14 @@ def apply_annotation(rel_path: str, boundaries: list) -> dict:
     return {"ok": True, "frames": len(d.get("data", [])), "boundaries": len(bs)}
 
 
-def export_episode_mp4(rel_path: str) -> dict:
-    """ffmpeg-encode an episode's head-camera JPEG sequence into an MP4 for
-    download. Frames are contiguous 000000.._head.jpg, so the image2 demuxer
-    reads them straight. Writes <episode>/head.mp4 and returns its /recordings
-    URL (served by _serve_recording as video/mp4)."""
+def export_episode_mp4(rel_path: str, kind: str = "head") -> dict:
+    """ffmpeg-encode an episode into an MP4 for download. Frames are contiguous
+    000000.._head.jpg (+ _depth.png), so the image2 demuxer reads them straight.
+      kind="head" -> head-camera RGB only            -> head.mp4
+      kind="rgbd" -> RGB | turbo-colorised depth      -> head_rgbd.mp4
+                     (16-bit depth normalised then pseudocolor'd, hstacked)
+    Returns the product's /recordings URL (served by _serve_recording as
+    video/mp4)."""
     if not rel_path.startswith("/recordings/"):
         return {"ok": False, "error": "bad path"}
     ep = (config.RECORDINGS_DIR / rel_path[len("/recordings/"):]).resolve()
@@ -439,11 +442,27 @@ def export_episode_mp4(rel_path: str) -> dict:
             fps = float(json.loads(dj.read_text()).get("info", {}).get("fps", 30)) or 30.0
         except Exception:
             pass
-    out = ep / "head.mp4"
-    cmd = ["ffmpeg", "-y", "-framerate", f"{fps:g}",
-           "-i", str(frames / "%06d_head.jpg"),
-           "-c:v", "libx264", "-pix_fmt", "yuv420p",
-           "-movflags", "+faststart", str(out)]
+    fr = f"{fps:g}"
+    if kind == "rgbd":
+        if not any(frames.glob("*_depth.png")):
+            return {"ok": False, "error": "该 episode 没有深度帧（无法导 RGBD）"}
+        out = ep / "head_rgbd.mp4"
+        cmd = ["ffmpeg", "-y",
+               "-framerate", fr, "-i", str(frames / "%06d_head.jpg"),
+               "-framerate", fr, "-i", str(frames / "%06d_depth.png"),
+               "-filter_complex",
+               "[0:v]format=yuv420p[rgb];"
+               "[1:v]format=gray16le,normalize=smoothing=30,format=yuv444p,"
+               "pseudocolor=preset=turbo,format=yuv420p[d];"
+               "[rgb][d]hstack=inputs=2[v]",
+               "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+               "-movflags", "+faststart", str(out)]
+    else:
+        out = ep / "head.mp4"
+        cmd = ["ffmpeg", "-y", "-framerate", fr,
+               "-i", str(frames / "%06d_head.jpg"),
+               "-c:v", "libx264", "-pix_fmt", "yuv420p",
+               "-movflags", "+faststart", str(out)]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     except FileNotFoundError:
@@ -452,8 +471,8 @@ def export_episode_mp4(rel_path: str) -> dict:
         return {"ok": False, "error": "ffmpeg 编码超时"}
     if p.returncode != 0 or not out.is_file():
         return {"ok": False, "error": "ffmpeg 失败：" + (p.stderr or "")[-300:]}
-    return {"ok": True, "url": rel_path + "/head.mp4",
-            "size": out.stat().st_size, "fps": fps}
+    return {"ok": True, "url": rel_path + "/" + out.name,
+            "size": out.stat().st_size, "fps": fps, "kind": kind}
 
 
 # ── HTTP handler ─────────────────────────────────────────────────────────────
@@ -564,7 +583,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, apply_annotation(body.get("path", ""), body.get("boundaries", [])))
             return
         if u.path == "/api/recordings/export":
-            self._json(200, export_episode_mp4(body.get("path", "")))
+            self._json(200, export_episode_mp4(body.get("path", ""), body.get("kind", "head")))
             return
         if u.path == "/api/record":
             # relay episode-recorder control to the recorder process via its stdin
