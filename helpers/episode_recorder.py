@@ -70,8 +70,8 @@ _TOPICS = (b"command", b"planner", b"pose")
 # ── shared latest-sample buffers ────────────────────────────────────────────
 _lock = threading.Lock()
 _latest = {"pose": None, "pose_t": 0.0,
-           "color": None, "color_t": 0.0,
-           "depth": None, "depth_t": 0.0,
+           "color": None, "color_t": 0.0, "color_chg": 0.0,
+           "depth": None, "depth_t": 0.0, "depth_chg": 0.0,
            "lowstate": None, "lowstate_t": 0.0,
            "lhand": None, "lhand_t": 0.0,
            "rhand": None, "rhand_t": 0.0,
@@ -149,7 +149,14 @@ def _pose_thread():
 
 
 def _img_thread(port, key):
-    s = _zmq_sub(f"tcp://{CAM_HOST}:{port}")
+    # conflate => always hold the freshest frame, never a stuck backlog one
+    ctx = zmq.Context.instance()
+    s = ctx.socket(zmq.SUB)
+    s.setsockopt(zmq.SUBSCRIBE, b"")
+    s.setsockopt(zmq.CONFLATE, 1)
+    s.setsockopt(zmq.RCVTIMEO, 1000)
+    s.connect(f"tcp://{CAM_HOST}:{port}")
+    last_h = None
     while _run["on"]:
         try:
             buf = s.recv()
@@ -157,9 +164,13 @@ def _img_thread(port, key):
             continue
         except Exception:
             break
+        h = hash(buf)
         with _lock:
             _latest[key] = buf
             _latest[key + "_t"] = time.monotonic()
+            if h != last_h:                       # content actually changed
+                _latest[key + "_chg"] = time.monotonic()
+            last_h = h
 
 
 def _dds_threads():
@@ -435,9 +446,15 @@ def main():
         if now - last_status >= 1.0:
             have = _have_sources()
             srcs = ",".join(k for k, v in have.items() if v) or "none"
+            # camera-frozen detector: frame content hasn't changed in >2s while a
+            # camera is connected => silently recording duplicate frames (bad data)
+            with _lock:
+                cam_frozen = (_latest["color"] is not None
+                              and (now - _latest["color_chg"]) > 2.0)
+            cam = " CAM_FROZEN!" if cam_frozen else ""
             _log(f"STATUS rec={'ON' if _ep['active'] else 'off'} "
                  f"auto={'ON' if _auto['on'] else 'off'} "
-                 f"pose={'POSE' if pose_fresh else '-'} "
+                 f"pose={'POSE' if pose_fresh else '-'}{cam} "
                  f"ep={_ep['idx'] if _ep['active'] else '-'} "
                  f"frames={_ep['frame'] if _ep['active'] else 0} "
                  f"stage={_ep['stage']} saved={_session['count']} src=[{srcs}]")

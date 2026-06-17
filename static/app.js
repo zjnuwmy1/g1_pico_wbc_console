@@ -718,6 +718,12 @@ async function pollLogs() {
               const el = $("src-" + k);
               if (el) el.className = "srcdot" + (active.has(k) ? " on" : "");
             }
+            // camera frozen = silently recording duplicate frames -> flag it
+            const hd = $("src-head");
+            if (hd) {
+              if (/CAM_FROZEN/.test(st)) { hd.className = "srcdot"; hd.textContent = "⚠相机冻帧"; }
+              else hd.textContent = "相机";
+            }
           }
         }
       }
