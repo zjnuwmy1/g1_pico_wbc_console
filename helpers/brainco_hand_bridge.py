@@ -19,13 +19,16 @@ error, so clamping the error clamps the current):
     resumes tracking. Opening is never clamped.
   * SLEW LIMIT — commanded closedness changes at most MAX_RATE per second.
   * MAX_CLOSE — hard cap on closedness (env WBC_HAND_MAX_CLOSE, default 1.0).
-  * NO POSE — when 'pose' stops there are two cases: (a) the streamer is still
-    up (planner/command still arriving on 5556, e.g. operator switched POSE ->
-    frozen-upper / walk-planner) -> HOLD the last grasp so an object can be
-    carried while walking; (b) the streamer is truly gone (GUI E-stop SIGINTs it
-    / crash -> 5556 silent for STALE_S) -> ramp OPEN gently at STALE_OPEN_RATE.
+  * NO POSE — when 'pose' stops there are three cases: (a) WALK-planner (A+X,
+    streamer sends planner WITHOUT upper_body_position) -> HOLD the last grasp so
+    an object can be carried while walking; (b) upper-body LOCK (B+Y -> frozen-
+    upper, the only planner msg carrying upper_body_position) -> HOLD then RELEASE
+    (ramp open) FROZEN_RELEASE_S seconds after entering the lock, so you lock the
+    arm over a spot and it places/lets go ~3s later; (c) streamer truly gone (GUI
+    E-stop SIGINTs it / crash -> 5556 silent for STALE_S) -> ramp OPEN gently.
     The GUI E-stop kills the streamer on purpose so the hands open.
-    (WBC_HAND_HOLD_ON_PLANNER=0 restores the old always-open-on-no-pose path.)
+    (WBC_HAND_HOLD_ON_PLANNER=0 = always-open-on-no-pose; WBC_HAND_FROZEN_RELEASE_S
+    <=0 = upper-body lock holds forever like walk.)
 
 NOTE exactly ONE bridge instance may run: two publishers on rt/brainco/*/cmd
 fight each other (verified: a stale bridge holding "open" cancels test grasps).
@@ -65,6 +68,14 @@ STALE_OPEN_RATE = 0.3     # closedness units/s auto-open when stale (~3s gentle)
 # you can carry an object while walking, instead of auto-opening. Only a truly
 # dead streamer (E-stop SIGINTs it / crash) -> silence on 5556 -> auto-open.
 HOLD_ON_PLANNER = os.environ.get("WBC_HAND_HOLD_ON_PLANNER", "1") == "1"
+# Upper-body-LOCK release: when the operator enters frozen-upper (B+Y -> POSE ->
+# PLANNER_FROZEN_UPPER_BODY: arms freeze in place), open the dexterous hands this
+# many seconds AFTER entering the lock — so you lock the arm over a spot, then 3s
+# later it lets go / places the object. Detected purely from the wire: ONLY the
+# frozen-upper planner message carries 'upper_body_position' (streamer sets it
+# only in that mode); plain walk-planner does NOT, so carrying-while-walking
+# still holds. <=0 disables (frozen-upper then holds forever like walk).
+FROZEN_RELEASE_S = float(os.environ.get("WBC_HAND_FROZEN_RELEASE_S", "3.0"))
 STALL_GAP = 0.22          # rad: measured lags command by more -> finger blocked
 STALL_MARGIN = 0.12       # rad: how far beyond the measured q we keep pushing
 STATE_FRESH_S = 0.5       # state older than this -> no clamp (warn once)
@@ -81,6 +92,9 @@ _axes = {"L": {"trigger": 0.0, "grip": 0.0}, "R": {"trigger": 0.0, "grip": 0.0}}
 _have_axes = {"v": False}   # pose stream carries trigger/grip fields
 _last_rx = {"t": 0.0}       # last 'pose' message (drives fingers)
 _last_any_rx = {"t": 0.0}   # last message of ANY topic = streamer still alive
+# frozen-upper (upper-body LOCK) detection from the planner wire. "since" = when
+# the current continuous frozen-upper stretch began (for the release countdown).
+_frozen = {"on": False, "since": 0.0, "last": 0.0}
 _state = {"L": None, "R": None}          # measured q[6] (rad)
 _state_rx = {"L": 0.0, "R": 0.0}
 _running = {"on": True}
@@ -137,7 +151,17 @@ def _zmq_reader():
         except Exception:
             time.sleep(0.1)
             continue
-        _last_any_rx["t"] = time.monotonic()
+        now = time.monotonic()
+        _last_any_rx["t"] = now
+        if msg[:7] == b"planner":
+            # frozen-upper (upper-body LOCK) is the ONLY mode whose planner
+            # message carries 'upper_body_position' (streamer sets it only then);
+            # walk-planner / VR-3PT do not. Cheap header substring check.
+            if b"upper_body_position" in msg[:HDR + 16]:
+                if not _frozen["on"]:
+                    _frozen["since"] = now      # entered the lock -> start countdown
+                _frozen["on"] = True
+                _frozen["last"] = now
         _parse_pose(msg)
 
 
@@ -246,10 +270,11 @@ def main():
     _thumb_mode = (f"grip->prox + stickY->meta INDEPENDENT({'ON' if _xrt else 'stick OFF!'})"
                    if META_FOLLOW == 0.0 else
                    f"grip->thumb(meta×{META_FOLLOW}+prox)+stickY trim({'ON' if _xrt else 'OFF'})")
+    _frz = f" [upper-body LOCK -> release after {FROZEN_RELEASE_S:.0f}s]" if FROZEN_RELEASE_S > 0 else ""
     print(f"[brainco-bridge] running (iface={iface}) | {_thumb_mode} trigger->fingers | "
           f"slew {MAX_RATE}/s | max_close {MAX_CLOSE} | "
           f"stall clamp gap {STALL_GAP}rad margin {STALL_MARGIN}rad | "
-          f"left-POSE: {'HOLD grasp' if HOLD_ON_PLANNER else 'open'} while streamer up, "
+          f"left-POSE: {'HOLD grasp' if HOLD_ON_PLANNER else 'open'} while streamer up{_frz}, "
           f"open {STALE_OPEN_RATE}/s when streamer gone", flush=True)
 
     dt = 1.0 / RATE_HZ
@@ -261,18 +286,32 @@ def main():
             now = time.monotonic()
             pose_stale = (now - _last_rx["t"]) > STALE_S
             streamer_alive = (now - _last_any_rx["t"]) < STALE_S
-            # track pose | HOLD last grasp (left POSE but streamer still streaming,
-            # e.g. frozen-upper / walk) | OPEN (streamer gone / E-stop) for safety.
+            # upper-body LOCK active = frozen-upper planner msgs arriving right now
+            frozen_active = _frozen["on"] and (now - _frozen["last"]) < STALE_S
+            if not frozen_active:
+                _frozen["on"] = False        # stretch ended -> next entry restarts countdown
+            # track pose | HOLD last grasp (left POSE, streamer up) | OPEN (gone).
+            # Special case: in upper-body LOCK, hold then RELEASE after N s (place).
             if not pose_stale:
+                _frozen["on"] = False        # back in POSE -> cancel any countdown
                 mode = "track"
-            elif streamer_alive and HOLD_ON_PLANNER:
-                mode = "hold"
+            elif not (streamer_alive and HOLD_ON_PLANNER):
+                mode = "open"                # streamer gone / E-stop -> safety open
+            elif frozen_active and FROZEN_RELEASE_S > 0 and (now - _frozen["since"]) >= FROZEN_RELEASE_S:
+                mode = "open"                # upper-body lock held N s -> release / place
             else:
-                mode = "open"
+                mode = "hold"                # frozen-upper within N s, or walk-planner
             if mode != last_mode:
-                _m = {"track": "input live",
-                      "hold": "left POSE -> HOLDING last grasp (streamer still up)",
-                      "open": "input STALE -> auto-opening hands"}[mode]
+                if mode == "track":
+                    _m = "input live"
+                elif mode == "hold":
+                    _m = (f"upper-body LOCK -> holding grasp, release in {FROZEN_RELEASE_S:.0f}s"
+                          if (frozen_active and FROZEN_RELEASE_S > 0)
+                          else "left POSE -> HOLDING last grasp (streamer up)")
+                else:  # open
+                    _m = ("upper-body LOCK held -> RELEASING hands"
+                          if (frozen_active and FROZEN_RELEASE_S > 0)
+                          else "input STALE -> auto-opening hands")
                 print(f"[brainco-bridge] {_m}{' | axes mode' if _have_axes['v'] else ''}", flush=True)
                 last_mode = mode
             for side in ("L", "R"):
