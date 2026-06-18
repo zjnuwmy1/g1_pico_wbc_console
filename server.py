@@ -732,6 +732,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._json(200, PM.write_stdin("playback", (json.dumps({"speed": sp}) + "\n").encode()))
             return
+        if u.path == "/api/playback/play":
+            # robot already engaged + standing at the start pose -> begin forward play
+            self._json(200, PM.write_stdin("playback", (json.dumps({"cmd": "play"}) + "\n").encode()))
+            return
         if u.path == "/api/record":
             # relay episode-recorder control to the recorder process via its stdin
             cmd = body.get("cmd")

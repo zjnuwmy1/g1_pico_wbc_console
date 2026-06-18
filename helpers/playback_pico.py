@@ -17,8 +17,11 @@ not recorded (it is zeros in the live stream) so it is synthesised as zeros.
 
 SAFETY
   * EXACTLY one 5556 publisher — pico_streamer / gui_drive MUST be stopped.
-  * Ramp-in: frame 0 is held (sent repeatedly) for RAMP_HOLD_S so the policy
-    eases the arms to the start pose before playing forward — no jump.
+  * Stand first: after engaging CONTROL the robot holds frame 0 (the recording's
+    standing start pose) and WAITS — forward playback begins only on an explicit
+    {"cmd":"play"} once the operator has eyeballed it standing stable (the
+    recording itself started from a standing pose). PB_AUTOPLAY=1 auto-plays after
+    RAMP_HOLD_S instead.
   * Default speed 0.5x; live-tunable via stdin {"speed": x}; {"cmd":"quit"} stops.
   * Stops cleanly on SIGINT/SIGTERM (stops publishing; the deploy holds its last
     command — E-stop the deploy with 'o' to damp).
@@ -45,11 +48,13 @@ from gear_sonic.utils.teleop.zmq.zmq_planner_sender import (
 )
 
 POSE_PORT = int(os.environ.get("PB_POSE_PORT", "5556"))
-RAMP_HOLD_S = float(os.environ.get("PB_RAMP_HOLD_S", "2.0"))  # hold frame 0 before playing
+RAMP_HOLD_S = float(os.environ.get("PB_RAMP_HOLD_S", "2.0"))  # auto-play delay when PB_AUTOPLAY=1
+AUTOPLAY = os.environ.get("PB_AUTOPLAY", "0") == "1"          # default: wait for explicit 'play'
 SPEED_MIN, SPEED_MAX = 0.25, 1.0
 
 _run = {"on": True}
 _ctl = {"speed": 0.5}
+_play = {"go": False}   # forward playback starts only after the operator confirms stand
 
 
 def _log(m):
@@ -68,6 +73,9 @@ def _stdin_thread():
         if d.get("cmd") == "quit":
             _run["on"] = False
             break
+        if d.get("cmd") == "play":
+            _play["go"] = True
+            _log("play confirmed -> forward playback")
         if "speed" in d:
             try:
                 _ctl["speed"] = max(SPEED_MIN, min(SPEED_MAX, float(d["speed"])))
@@ -167,14 +175,25 @@ def main():
         time.sleep(0.05)
     time.sleep(0.3)
 
-    _log(f"replaying {len(msgs)} frames @ {_ctl['speed']:.2f}x from {os.path.basename(ep)} "
-         f"(ramp-in {RAMP_HOLD_S:.0f}s holding frame 0)")
+    _log(f"loaded {len(msgs)} frames from {os.path.basename(ep)} @ {_ctl['speed']:.2f}x")
 
-    # ramp-in: hold frame 0 so the policy eases the arms to the start pose
-    t_end = time.monotonic() + RAMP_HOLD_S
-    while _run["on"] and time.monotonic() < t_end:
+    # STAND FIRST: the recording started from a standing pose, so settle there
+    # before moving. Hold frame 0 (the policy stands/balances and eases the arms
+    # to the start pose) and WAIT until the operator confirms it is stable and
+    # sends 'play' — then play forward. (PB_AUTOPLAY=1 auto-plays after RAMP_HOLD_S.)
+    _log("STANDING & easing to start pose (frame 0) — waiting for 'play'"
+         + (f", auto in {RAMP_HOLD_S:.0f}s" if AUTOPLAY else ""))
+    t0 = time.monotonic()
+    while _run["on"]:
         s.send(msgs[0])
+        if _play["go"]:
+            break
+        if AUTOPLAY and (time.monotonic() - t0) >= RAMP_HOLD_S:
+            _log("auto-play")
+            break
         time.sleep(1.0 / 30.0)
+    if _run["on"]:
+        _log("playing forward")
 
     # play forward at the recorded cadence / speed (live-tunable)
     for i, msg in enumerate(msgs):

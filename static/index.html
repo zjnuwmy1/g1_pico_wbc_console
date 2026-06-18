@@ -529,10 +529,13 @@
       </div>
 
       <div class="step-actions">
-        <button class="btn primary" id="pb-start" onclick="pbStart()">▶ 开始回放</button>
-        <button class="btn danger-btn" onclick="pbStop()">■ 停止回放</button>
+        <button class="btn danger-btn" id="pb-engage" onclick="pbEngage()">① 起身站稳（进 CONTROL）</button>
+        <button class="btn primary" id="pb-play" onclick="pbPlay()">② ▶ 开始回放（前进）</button>
+        <button class="btn" onclick="pbStop()">■ 停止</button>
         <span class="proc-pill" id="pill-playback">未运行</span>
       </div>
+      <p class="note">先点 ①：机器人进 CONTROL、缓动到录制<strong>起始姿势并站稳停住</strong>（录制时本来就站着）。
+        目视确认站稳后再点 ② 按轨迹前进。任何时候点 ■ 停止（机器人保持最后指令，必要时底部急停）。</p>
       <pre class="logpane small collapsed" id="log-playback" onclick="this.classList.toggle('collapsed')"></pre>
     </section>
   </main>

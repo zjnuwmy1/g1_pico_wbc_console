@@ -259,7 +259,7 @@ async function pbRefresh() {
   const allOk = items.every((x) => x[0]);
   if (pill) { pill.textContent = allOk ? "就绪" : "未就绪"; pill.className = "pill " + (allOk ? "ok" : "err"); }
 }
-async function pbStart() {
+async function pbEngage() {
   const mode = (document.querySelector('input[name="pb-mode"]:checked') || {}).value;
   if (mode !== "pico") { uiToast("电机层面稍后实现，先用 PICO 层面", "warn"); return; }
   const ep = $("pb-sel").value;
@@ -267,13 +267,18 @@ async function pbStart() {
   const checklist = {};
   document.querySelectorAll(".pb-ck").forEach((c) => { checklist[c.dataset.key] = c.checked; });
   const typed = ($("pb-typed").value || "").trim();
-  if (!(await uiConfirm("确认开始回放？\n这会【启动策略进 CONTROL】并让机器人按录制运动。\n场地清空、急停在手、先 0.5x？"))) return;
+  if (!(await uiConfirm("① 起身站稳：\n这会【启动策略进 CONTROL】，机器人缓动到录制起始姿势并站稳。\n场地清空、急停在手？"))) return;
   const tok = await api("/api/safety/confirm", { checklist, typed });
   if (!tok.ok) { uiToast("安全确认未通过：" + (tok.error || ""), "danger"); return; }
   const speed = parseFloat($("pb-speed").value);
   const r = await api("/api/playback/start", { episode: ep, speed, safety_token: tok.safety_token });
-  if (r.ok) uiToast(`回放已开始 @ ${speed.toFixed(2)}x（先缓动到第0帧）`);
+  if (r.ok) uiToast("已进 CONTROL，机器人起身站到起始姿势 —— 目视站稳后点 ②", "ok");
   else uiToast("启动失败：" + (r.error || ""), "danger");
+}
+async function pbPlay() {
+  if (!(await uiConfirm("② 开始回放：机器人将按录制轨迹前进。\n已目视确认站稳、急停在手？"))) return;
+  const r = await api("/api/playback/play", {});
+  uiToast(r.ok ? "开始前进回放" : "失败：" + (r.error || "回放进程没在站立等待？"), r.ok ? "ok" : "danger");
 }
 async function pbStop() {
   const r = await api("/api/procs/playback/stop", {});
