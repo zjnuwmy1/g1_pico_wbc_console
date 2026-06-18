@@ -549,6 +549,48 @@ def curate_recording(body) -> dict:
     return {"ok": True, "curation": cur}
 
 
+def _act_env_ready() -> bool:
+    """True only when torch+lerobot are actually installed (not just the env dir).
+    The setup script echoes ACT_ENV_SETUP_DONE after a successful import verify."""
+    if not config.ACT_TRAIN_VENV_PY.exists():
+        return False
+    try:
+        # log present: trust the marker (False while still installing)
+        return "ACT_ENV_SETUP_DONE" in open("/tmp/act_env_setup.log").read()
+    except OSError:
+        pass  # log gone (e.g. after reboot) -> assume done if torch is installed
+    import glob
+    lib = config.ACT_TRAIN_VENV_PY.parent.parent / "lib"
+    return bool(glob.glob(str(lib / "python*/site-packages/torch/version.py")))
+
+
+def run_train_convert(body) -> dict:
+    """Build a LeRobot ACT dataset from CURATED recordings (convert_dataset proc)."""
+    if not _act_env_ready():
+        return {"ok": False, "error": "act_train 环境还没装好(torch/lerobot 仍在后台装)"}
+    repo_id = (body.get("repo_id") or "g1_pico_act/v1").strip()
+    sessions = body.get("sessions") or "all"
+    if isinstance(sessions, list):
+        sessions = ",".join(s for s in sessions if s) or "all"
+    images = body.get("images") if body.get("images") in ("rgb", "rgbd") else "rgb"
+    touch = 1 if body.get("touch") else 0
+    PM.prepare_train(repo_id=repo_id, sessions=sessions, images=images, touch=touch)
+    return PM.start("convert_dataset")
+
+
+def run_train_start(body) -> dict:
+    """Start ACT training on the converted dataset (act_train proc, long-running)."""
+    if not _act_env_ready():
+        return {"ok": False, "error": "act_train 环境还没装好"}
+    repo_id = (body.get("repo_id") or "g1_pico_act/v1").strip()
+    try:
+        steps = max(1000, int(body.get("steps", 100000)))
+    except (TypeError, ValueError):
+        steps = 100000
+    PM.prepare_train(repo_id=repo_id, steps=steps)
+    return PM.start("act_train")
+
+
 def apply_annotation(rel_path: str, boundaries: list) -> dict:
     """Write stage labels into an episode's data.json (offline annotation). Each
     boundary {frame, stage, label} sets the stage from that frame index onward
@@ -711,6 +753,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, api_recordings())
         elif u.path == "/api/hand/frozen_release":
             self._json(200, get_frozen_release())
+        elif u.path == "/api/train/status":
+            self._json(200, {"ok": True, "env_ready": _act_env_ready()})
         elif u.path.startswith("/recordings/"):
             self._serve_recording(u.path)
         elif u.path.startswith("/api/logs/"):
@@ -757,6 +801,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/recordings/delete":
             self._json(200, delete_recording(body.get("path", "")))
+            return
+        if u.path == "/api/train/convert":
+            self._json(200, run_train_convert(body))
+            return
+        if u.path == "/api/train/start":
+            self._json(200, run_train_start(body))
             return
         if u.path == "/api/recordings/curate":
             self._json(200, curate_recording(body))

@@ -283,9 +283,15 @@ class ProcessManager:
         self.hand_mode: str = "dex3"
         # episode-playback target (set by the server before start("playback"))
         self._pb: dict = {"episode": "", "speed": 0.5}
+        # ACT training params (set before start("convert_dataset")/start("act_train"))
+        self._train: dict = {"sessions": "all", "repo_id": "g1_pico_act/v1",
+                             "images": "rgb", "touch": 0, "steps": 100000}
 
     def prepare_playback(self, episode: str, speed: float) -> None:
         self._pb = {"episode": episode, "speed": speed}
+
+    def prepare_train(self, **kw) -> None:
+        self._train.update({k: v for k, v in kw.items() if v is not None})
 
     # ── specs ────────────────────────────────────────────────────────────────
     def _spec(self, name: str, vis: bool = False) -> ProcSpec:
@@ -354,6 +360,26 @@ class ProcessManager:
                 cwd=config.REPO_ROOT, profile="py",
                 env_extra={"GEAR_SONIC_ROOT": str(config.REPO_ROOT)},
             )
+        if name == "convert_dataset":
+            t = self._train
+            return ProcSpec(
+                "convert_dataset",
+                [str(config.ACT_TRAIN_VENV_PY), str(config.BUILD_DATASET_PY),
+                 "--repo-id", str(t["repo_id"]), "--sessions", str(t["sessions"]),
+                 "--images", str(t["images"]), "--touch", str(int(t["touch"]))],
+                cwd=config.CONSOLE_ROOT, profile="py",
+            )
+        if name == "act_train":
+            t = self._train
+            outdir = config.TRAINING_DIR / str(t["repo_id"]).replace("/", "_")
+            return ProcSpec(
+                "act_train",
+                [str(config.ACT_TRAIN_VENV_PY), "-m", "lerobot.scripts.lerobot_train",
+                 f"--dataset.repo_id={t['repo_id']}", "--policy.type=act",
+                 "--policy.push_to_hub=false", f"--steps={int(t['steps'])}",
+                 f"--output_dir={outdir}"],
+                cwd=config.REPO_ROOT, profile="py",
+            )
         if name == "recorder":
             import checks as _checks
             robot = _checks.find_real_robot_interface()
@@ -375,7 +401,7 @@ class ProcessManager:
             )
         raise KeyError(name)
 
-    KNOWN = ("sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "recorder", "install_pico", "pc_service", "playback")
+    KNOWN = ("sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "recorder", "install_pico", "pc_service", "playback", "convert_dataset", "act_train")
 
     # ── API ──────────────────────────────────────────────────────────────────
     def get(self, name: str) -> Proc | None:

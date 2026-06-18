@@ -75,6 +75,7 @@ function showStep(n) {
   if (String(n) === "8" && $("ep-sel") && !$("ep-sel").options.length) loadRecordings();
   if (String(n) === "7") loadFrozenRelease();
   if (String(n) === "9") { pbLoad(); pbRefresh(); }
+  if (String(n) === "10") trainLoadSessions();
 }
 document.querySelectorAll(".step-tab").forEach((t) => {
   t.tabIndex = 0;  // keyboard-reachable
@@ -302,6 +303,47 @@ async function pbPlay() {
 async function pbStop() {
   const r = await api("/api/procs/playback/stop", {});
   uiToast(r.ok ? "回放已停止（机器人保持最后指令，必要时急停）" : "停止失败：" + (r.error || ""), r.ok ? "ok" : "danger");
+}
+
+/* ── step 10: ACT training (convert curated recordings -> LeRobot -> train) ── */
+async function trainStatus() {
+  const r = await fetch("/api/train/status").then((x) => x.json()).catch(() => null);
+  const p = $("train-env-pill");
+  if (!p) return;
+  if (r && r.env_ready) { p.textContent = "环境就绪"; p.className = "pill ok"; }
+  else { p.textContent = "环境装中…(torch/lerobot)"; p.className = "pill err"; }
+}
+async function trainLoadSessions() {
+  const host = $("train-sessions");
+  const r = await fetch("/api/recordings").then((x) => x.json()).catch(() => null);
+  if (!r || !r.sessions || !r.sessions.length) { if (host) host.innerHTML = "<span class='hint'>暂无录制</span>"; return; }
+  let h = "";
+  for (const s of r.sessions) {
+    const keep = s.episodes.filter((e) => e.curation && e.curation.keep === true).length;
+    h += `<label style="display:inline-block;margin:3px 14px 3px 0">
+      <input type="checkbox" class="train-sess" value="${s.session}" ${keep ? "" : "disabled"}>
+      ${s.session} <span class="hint">(✓要 ${keep}/${s.count})</span></label>`;
+  }
+  if (host) host.innerHTML = h;
+  trainStatus();
+}
+function trainSelAll(c) { document.querySelectorAll(".train-sess:not(:disabled)").forEach((x) => { x.checked = c; }); }
+function _trainSel() { return [...document.querySelectorAll(".train-sess:checked")].map((x) => x.value); }
+async function trainConvert() {
+  const sessions = _trainSel();
+  if (!sessions.length) { uiToast("先勾选要训练的会话（至少一个有 ✓要 的）", "warn"); return; }
+  const r = await api("/api/train/convert", {
+    sessions, repo_id: ($("train-repo").value || "").trim(),
+    images: $("train-images").value, touch: $("train-touch").checked,
+  });
+  uiToast(r.ok ? "开始转换数据集（看下面日志，几分钟）" : "转换失败：" + (r.error || ""), r.ok ? "ok" : "danger");
+}
+async function trainStart() {
+  if (!(await uiConfirm("开始 ACT 训练？\n数据集要先①转换好；训练会在后台跑几小时。"))) return;
+  const r = await api("/api/train/start", {
+    repo_id: ($("train-repo").value || "").trim(), steps: parseInt($("train-steps").value) || 100000,
+  });
+  uiToast(r.ok ? "训练已启动（后台跑，看 loss）" : "启动失败：" + (r.error || ""), r.ok ? "ok" : "danger");
 }
 
 async function restartCamera(btn) {

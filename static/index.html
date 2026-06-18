@@ -23,6 +23,7 @@
     <div class="step-tab" data-step="7"><span class="num">7</span>数据录制</div>
     <div class="step-tab" data-step="8"><span class="num">8</span>数据查看</div>
     <div class="step-tab danger" data-step="9"><span class="num">9</span>回放</div>
+    <div class="step-tab" data-step="10"><span class="num">10</span>训练</div>
   </nav>
 
   <main>
@@ -562,6 +563,49 @@
       <p class="note">先点 ①：机器人进 CONTROL、<strong>SONIC 持续主动平衡</strong>，缓动到录制<strong>起始姿势并站稳停住</strong>（录制时本来就站着）。
         等弹出「✅ deploy 已进 CONTROL」+ 目视站稳后再点 ② 按轨迹前进。放完后<strong>保持末姿势、SONIC 继续平衡</strong>，确认安全再点 ■ 停止（必要时底部急停）。</p>
       <pre class="logpane small collapsed" id="log-playback" onclick="this.classList.toggle('collapsed')"></pre>
+    </section>
+
+    <!-- ── STEP 10: ACT training ── -->
+    <section class="step-panel" id="panel-10">
+      <h2>步骤 10 · 训练 ACT</h2>
+      <p class="warn">用你<strong>清洗过(要+区间)</strong>的录制训练 ACT 策略。动作 = PICO 指令(含腰）→ 推理时回灌 SONIC deploy。先<strong>① 转换数据集</strong>，再<strong>② 开始训练</strong>。</p>
+
+      <div class="card">
+        <h3>① 选数据 + 配置 <span class="pill" id="train-env-pill">检查环境…</span></h3>
+        <div id="train-sessions" class="note">点「刷新」加载会话（勾选要训练的，只用其中 ✓要 的 episode）。</div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" onclick="trainLoadSessions()">刷新会话</button>
+          <label><input type="checkbox" id="train-sel-all" onchange="trainSelAll(this.checked)"> 全选</label>
+        </div>
+        <div class="row" style="align-items:center;gap:16px;margin-top:10px">
+          <label>图像：
+            <select id="train-images">
+              <option value="rgb">RGB(只彩色)</option>
+              <option value="rgbd">RGBD(彩色+深度)</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="train-touch"> 带触觉 touch</label>
+          <label>数据集名：<input type="text" id="train-repo" value="g1_pico_act/v1" style="width:170px"></label>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary" id="train-convert" onclick="trainConvert()">① 转换数据集</button>
+          <span class="proc-pill" id="pill-convert_dataset">未运行</span>
+          <span class="hint">把勾选会话里 ✓要 的 episode 按区间裁剪 → LeRobot 数据集</span>
+        </div>
+        <pre class="logpane small collapsed" id="log-convert_dataset" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+
+      <div class="card">
+        <h3>② 开始训练</h3>
+        <div class="row" style="align-items:center;gap:14px">
+          <label>训练步数 steps：<input type="text" id="train-steps" value="100000" style="width:90px"></label>
+          <button class="btn primary" id="train-start" onclick="trainStart()">② 开始训练 ACT</button>
+          <button class="btn" onclick="stopProc('act_train')">停止训练</button>
+          <span class="proc-pill" id="pill-act_train">未运行</span>
+        </div>
+        <p class="note">RTX 5080 上 ACT ~10万步约几小时。训练在后台跑，可关页面；checkpoint 存 <code>training/</code>。下面看 loss/进度。</p>
+        <pre class="logpane collapsed" id="log-act_train" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
     </section>
   </main>
 </div>

@@ -55,6 +55,13 @@ RECORDINGS_DIR = CONSOLE_ROOT / "recordings"
 # exclusive with pico_streamer / gui_drive. Drives the REAL robot -> safety-gated.
 PLAYBACK_PY = CONSOLE_ROOT / "helpers" / "playback_pico.py"
 
+# ACT training (LeRobot): dedicated `act_train` conda env (torch cu128 + lerobot
+# v0.4.4). build_act_dataset.py turns CURATED recordings -> a LeRobot dataset
+# (in HF_LEROBOT_HOME), then lerobot trains an ACT policy on it.
+ACT_TRAIN_VENV_PY = Path.home() / "miniconda3" / "envs" / "act_train" / "bin" / "python"
+BUILD_DATASET_PY = CONSOLE_ROOT / "helpers" / "build_act_dataset.py"
+TRAINING_DIR = CONSOLE_ROOT / "training"   # ACT checkpoints / outputs
+
 STATE_FILE = CONSOLE_ROOT / "state" / "state.json"
 LOGS_DIR = CONSOLE_ROOT / "logs"
 STATIC_DIR = CONSOLE_ROOT / "static"
