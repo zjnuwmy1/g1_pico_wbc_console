@@ -247,17 +247,17 @@ async function pbRefresh() {
   const ul = $("pb-precond-list"), pill = $("pb-precond");
   if (!st || !ul) return;
   const p = st.procs || {}, t = st.teleop || {};
-  const control = !!t.deploy_control;
+  const ready = !!t.deploy_ready || !!t.deploy_control;
   const z = (n) => p[n] && p[n].alive;
   const occ = z("pico_streamer") || z("gui_drive");
   const items = [
-    [control, "SONIC deploy 在 CONTROL（策略已 start）", "去步骤5启动策略并 start 进 CONTROL"],
+    [ready, "SONIC deploy 已就绪（到 Init Done）—— 回放会自己进 CONTROL", "去步骤5起 deploy 到 Init Done（释放高层+调试模式）"],
     [!occ, "5556 已空闲（PICO数据流 / 手动驾驶 已停）", "先停 pico_streamer / gui_drive"],
   ];
   ul.innerHTML = items.map(([ok, label, fix]) =>
     `<li><span style="color:${ok ? "var(--ok)" : "var(--fail)"}">${ok ? "✓" : "✗"}</span> ${label}${ok ? "" : ` <span class="hint">— ${fix}</span>`}</li>`).join("");
-  const ready = items.every((x) => x[0]);
-  if (pill) { pill.textContent = ready ? "就绪" : "未就绪"; pill.className = "pill " + (ready ? "ok" : "err"); }
+  const allOk = items.every((x) => x[0]);
+  if (pill) { pill.textContent = allOk ? "就绪" : "未就绪"; pill.className = "pill " + (allOk ? "ok" : "err"); }
 }
 async function pbStart() {
   const mode = (document.querySelector('input[name="pb-mode"]:checked') || {}).value;
@@ -267,7 +267,7 @@ async function pbStart() {
   const checklist = {};
   document.querySelectorAll(".pb-ck").forEach((c) => { checklist[c.dataset.key] = c.checked; });
   const typed = ($("pb-typed").value || "").trim();
-  if (!(await uiConfirm("确认开始回放？机器人会按录制运动。\n场地清空、急停在手、先 0.5x？"))) return;
+  if (!(await uiConfirm("确认开始回放？\n这会【启动策略进 CONTROL】并让机器人按录制运动。\n场地清空、急停在手、先 0.5x？"))) return;
   const tok = await api("/api/safety/confirm", { checklist, typed });
   if (!tok.ok) { uiToast("安全确认未通过：" + (tok.error || ""), "danger"); return; }
   const speed = parseFloat($("pb-speed").value);

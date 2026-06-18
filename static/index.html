@@ -491,7 +491,7 @@
         <h3>① 回放模式</h3>
         <label><input type="radio" name="pb-mode" value="pico" checked> <strong>PICO 输出层面</strong>（把录的遥操作动作重发给 SONIC 策略 → 策略转电机指令、管平衡，机器人可站地上）</label><br>
         <label style="color:var(--dim)"><input type="radio" name="pb-mode" value="motor" disabled> 电机层面（下半身仍由 SONIC 平衡、只回放上半身关节）—— 稍后实现</label>
-        <p class="note">PICO 层面要求 <strong>SONIC deploy 已在 CONTROL</strong>，且 <strong>PICO 数据流/手动驾驶已停</strong>（同占 5556）。若手桥在跑，会顺带回放手的抓握。</p>
+        <p class="note">只需 <strong>SONIC deploy 起到 Init Done</strong>（不用先靠手柄/驾驶进 CONTROL）—— <strong>回放会自己发 start 进 CONTROL</strong>。要求 <strong>PICO 数据流/手动驾驶已停</strong>（同占 5556）。若手桥在跑，会顺带回放手的抓握。</p>
       </div>
 
       <div class="card">

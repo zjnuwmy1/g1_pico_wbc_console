@@ -336,7 +336,8 @@ def set_frozen_release(seconds) -> dict:
 def run_playback_start(body) -> dict:
     """Start PICO-level episode playback (caller must have consumed the safety
     token). Validates the episode path is inside recordings/ and that the SONIC
-    deploy is actually in CONTROL (else the poses go nowhere / unsafe)."""
+    deploy is at least at Init Done (WAIT_FOR_CONTROL) — playback then sends the
+    policy-start command itself to enter CONTROL, so the streamer is not needed."""
     rel = body.get("episode", "")
     if not rel.startswith("/recordings/"):
         return {"ok": False, "error": "bad episode path"}
@@ -344,8 +345,9 @@ def run_playback_start(body) -> dict:
     root = config.RECORDINGS_DIR.resolve()
     if root not in ep.parents or not (ep / "data.json").is_file():
         return {"ok": False, "error": "episode 不存在"}
-    if not teleop_state().get("deploy_control"):
-        return {"ok": False, "error": "SONIC deploy 未在 CONTROL —— 先在步骤5启动策略并 start 进 CONTROL"}
+    ts = teleop_state()
+    if not (ts.get("deploy_ready") or ts.get("deploy_control")):
+        return {"ok": False, "error": "SONIC deploy 未就绪（未到 Init Done）—— 先在步骤5起 deploy 到 Init Done"}
     try:
         speed = max(0.25, min(1.0, float(body.get("speed", 0.5) or 0.5)))
     except (TypeError, ValueError):

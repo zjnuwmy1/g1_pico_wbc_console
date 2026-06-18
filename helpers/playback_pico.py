@@ -5,9 +5,11 @@ onto the real G1 through the running SONIC deploy.
 Each recorded frame's `action` is repacked into the exact v3 'pose' wire message
 the streamer would have sent (pack_pose_message + original shapes, so it is
 byte-compatible with what the deploy already parses) and published on ZMQ 5556 at
-the recorded timing / speed. The deploy (must be running + in CONTROL) turns the
-poses into motor commands and balances the body; if the BrainCo hand bridge is
-running it replays the grasp too (triggers/grips are in the message).
+the recorded timing / speed. Playback ITSELF sends the POSE-mode policy-start
+command (so the deploy only needs to be at Init Done / WAIT_FOR_CONTROL, not
+pre-engaged via the streamer) -> the deploy enters CONTROL, turns the poses into
+motor commands and balances the body; if the BrainCo hand bridge is running it
+replays the grasp too (triggers/grips are in the message).
 
 The lower body is driven by the recorded smpl_joints (24-joint SMPL incl. feet
 22-23) + body_quat_w + heading_increment; the arms by vr 3-point. joint_vel is
@@ -38,7 +40,9 @@ _ROOT = os.environ.get("GEAR_SONIC_ROOT",
                        os.path.expanduser("~/gear_sonic_elbow_crawling_isaacsim/GR00T-WholeBodyControl"))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
-from gear_sonic.utils.teleop.zmq.zmq_planner_sender import pack_pose_message
+from gear_sonic.utils.teleop.zmq.zmq_planner_sender import (
+    pack_pose_message, build_command_message,
+)
 
 POSE_PORT = int(os.environ.get("PB_POSE_PORT", "5556"))
 RAMP_HOLD_S = float(os.environ.get("PB_RAMP_HOLD_S", "2.0"))  # hold frame 0 before playing
@@ -150,6 +154,19 @@ def main():
     s = ctx.socket(zmq.PUB)
     s.bind(f"tcp://*:{POSE_PORT}")
     time.sleep(0.5)  # let the deploy's SUB connect (slow joiner)
+
+    # Enter CONTROL ourselves: send the POSE-mode policy-start command the
+    # streamer sends on entering POSE (start=True, planner=False) a few times so
+    # the deploy switches WAIT_FOR_CONTROL -> CONTROL before the poses arrive.
+    # (This is why playback only needs the deploy at Init Done, not pre-engaged.)
+    _log("engaging policy -> CONTROL (start=True, planner=False)")
+    for _ in range(6):
+        if not _run["on"]:
+            break
+        s.send(build_command_message(start=True, stop=False, planner=False))
+        time.sleep(0.05)
+    time.sleep(0.3)
+
     _log(f"replaying {len(msgs)} frames @ {_ctl['speed']:.2f}x from {os.path.basename(ep)} "
          f"(ramp-in {RAMP_HOLD_S:.0f}s holding frame 0)")
 
