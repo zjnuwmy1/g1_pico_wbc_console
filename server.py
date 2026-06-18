@@ -686,11 +686,14 @@ class Handler(BaseHTTPRequestHandler):
         if ctype == "application/json":
             ctype += "; charset=utf-8"
         data = target.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client navigated away mid-transfer (e.g. rapid curation) — harmless
 
     def _body(self) -> dict:
         try:
@@ -875,6 +878,50 @@ def _graceful_exit(*_):
     sys.exit(0)
 
 
+# ── deploy DDS-congestion auto-recovery ─────────────────────────────────────
+# The deploy stalls at "LowState is not available" when the recorder/brainco
+# bridge DDS participants congest the local domain so the freshly-started deploy
+# can't join. Freeing those slots (stop -> wait -> restart) lets it in; the
+# deploy keeps its slot once joined. This automates the manual fix we kept doing.
+DEPLOY_RECOVER_AFTER = 12.0       # deploy stuck-on-lowstate this long -> recover
+DEPLOY_RECOVER_COOLDOWN = 90.0    # min seconds between recoveries
+
+
+def _deploy_lowstate_watchdog() -> None:
+    stuck_since = None
+    last_recover = 0.0
+    while True:
+        time.sleep(3.0)
+        try:
+            ts = teleop_state()
+            d = PM.get("deploy_real")
+            stuck = bool(d and d.alive() and ts.get("deploy_waiting_lowstate")
+                         and not ts.get("deploy_ready"))
+            now = time.time()
+            if not stuck:
+                stuck_since = None
+                continue
+            if stuck_since is None:
+                stuck_since = now
+            if (now - stuck_since) < DEPLOY_RECOVER_AFTER or (now - last_recover) < DEPLOY_RECOVER_COOLDOWN:
+                continue
+            last_recover, stuck_since = now, None
+            print("[console] deploy stuck on LowState -> auto-freeing DDS slots "
+                  "(stop recorder+brainco_hand, wait, restart)", flush=True)
+            freed = []
+            for n in ("recorder", "brainco_hand"):
+                p = PM.get(n)
+                if p and p.alive():
+                    PM.stop(n)
+                    freed.append(n)
+            time.sleep(16.0)            # let the deploy discover lowstate on the freed domain
+            for n in freed:
+                PM.start(n)
+            print(f"[console] DDS-slot recovery done (freed+restarted {freed})", flush=True)
+        except Exception as e:
+            print(f"[console] lowstate watchdog error: {e}", flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=config.GUI_PORT)
@@ -887,6 +934,8 @@ def main() -> None:
 
     # warm the env checks cache so first page load isn't empty
     threading.Thread(target=run_checks, args=("env",), daemon=True).start()
+    # auto-recover the deploy from DDS-congestion lowstate stalls
+    threading.Thread(target=_deploy_lowstate_watchdog, daemon=True).start()
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"[console] G1 PICO WBC Console → http://{args.host}:{args.port}")
