@@ -460,7 +460,14 @@ def api_recordings() -> dict:
                 info = {"name": ep.name,
                         "path": f"/recordings/{sess.name}/{ep.name}",
                         "frames": 0, "goal": "", "cameras": [], "seconds": 0.0,
-                        "bytes": 0, "touch": False, "state": False, "stages": 1}
+                        "bytes": 0, "touch": False, "state": False, "stages": 1,
+                        "curation": None}
+                cf = ep / "curation.json"
+                if cf.is_file():
+                    try:
+                        info["curation"] = json.loads(cf.read_text())
+                    except Exception:
+                        pass
                 dj = ep / "data.json"
                 if dj.is_file():
                     try:
@@ -509,6 +516,37 @@ def delete_recording(rel_path: str) -> dict:
     except Exception as e:
         return {"ok": False, "error": str(e)}
     return {"ok": True, "deleted": rel_path}
+
+
+def curate_recording(body) -> dict:
+    """Data-cleaning decision for one episode: keep/discard + the useful frame
+    range. Persisted to <episode>/curation.json (tiny, fast — doesn't rewrite the
+    big data.json). keep: True/False/None(undecided); start/end: frame idx or
+    None(=full). Downstream training reads curation.json to filter + trim."""
+    rel = body.get("path", "")
+    if not rel.startswith("/recordings/"):
+        return {"ok": False, "error": "bad path"}
+    ep = (config.RECORDINGS_DIR / rel[len("/recordings/"):]).resolve()
+    root = config.RECORDINGS_DIR.resolve()
+    if root not in ep.parents or not (ep / "data.json").is_file():
+        return {"ok": False, "error": "episode 不存在"}
+
+    def _int_or_none(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+    keep = body.get("keep")
+    cur = {"keep": (None if keep is None else bool(keep)),
+           "start": _int_or_none(body.get("start")),
+           "end": _int_or_none(body.get("end"))}
+    if cur["start"] is not None and cur["end"] is not None and cur["start"] > cur["end"]:
+        cur["start"], cur["end"] = cur["end"], cur["start"]
+    try:
+        (ep / "curation.json").write_text(json.dumps(cur, separators=(",", ":")))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "curation": cur}
 
 
 def apply_annotation(rel_path: str, boundaries: list) -> dict:
@@ -716,6 +754,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/recordings/delete":
             self._json(200, delete_recording(body.get("path", "")))
+            return
+        if u.path == "/api/recordings/curate":
+            self._json(200, curate_recording(body))
             return
         if u.path == "/api/playback/start":
             err = consume_safety_token(body.get("safety_token"))

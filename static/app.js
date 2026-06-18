@@ -381,22 +381,29 @@ async function loadRecordings() {
     return;
   }
   // dropdown drives the frame viewer
-  let opt = "", total = 0, tBytes = 0, tFrames = 0;
+  let opt = "", total = 0, tBytes = 0, tFrames = 0, nKeep = 0, nDrop = 0;
   for (const s of r.sessions) for (const e of s.episodes) {
     total++; tBytes += e.bytes || 0; tFrames += e.frames || 0;
+    const c = e.curation;
+    if (c && c.keep === true) nKeep++; else if (c && c.keep === false) nDrop++;
     opt += `<option value="${e.path}">${s.session} / ${e.name} · ${e.frames}帧</option>`;
   }
   if (sel) sel.innerHTML = opt;
-  // overview: per-session table of what was recorded + delete controls
-  let html = `<div class="note" style="margin-bottom:8px">共 <b>${total}</b> episode / ${r.sessions.length} 会话 · ${tFrames} 帧 · 占盘 <b>${fmtBytes(tBytes)}</b></div>`;
+  // overview: per-session table of what was recorded + curation + delete controls
+  let html = `<div class="note" style="margin-bottom:8px">共 <b>${total}</b> episode / ${r.sessions.length} 会话 · ${tFrames} 帧 · 占盘 <b>${fmtBytes(tBytes)}</b>
+    &nbsp;|&nbsp; 取舍(只是分类标签，不删文件)：<b style="color:var(--ok)">✓要 ${nKeep}</b> · <b style="color:var(--fail)">✗不要 ${nDrop}</b> · 未定 ${total - nKeep - nDrop}</div>`;
   for (const s of r.sessions) {
     html += `<div class="rec-sess"><div class="row" style="justify-content:space-between;align-items:center">
       <strong>📁 ${esc(s.session)}</strong>
       <span class="hint">${s.count} 条 · ${s.frames} 帧 · ${fmtBytes(s.bytes)}
       &nbsp;<button class="btn" onclick="delRecording('${s.episodes[0] ? "/recordings/" + s.session : ""}','整个会话 ${esc(s.session)}（${s.count} 条）')">🗑 删会话</button></span></div>
-      <table class="rec-tbl"><thead><tr><th>ep</th><th>目标</th><th>帧</th><th>时长</th><th>大小</th><th>模态</th><th>阶段</th><th></th></tr></thead><tbody>`;
+      <table class="rec-tbl"><thead><tr><th>ep</th><th>目标</th><th>帧</th><th>时长</th><th>大小</th><th>模态</th><th>阶段</th><th>取舍</th><th></th></tr></thead><tbody>`;
     for (const e of s.episodes) {
       const mods = [(e.cameras || []).includes("head") ? "RGB" : "", (e.cameras || []).includes("depth") ? "D" : "", e.state ? "本体" : "", e.touch ? "触" : ""].filter(Boolean).join("·");
+      const c = e.curation;
+      const curCell = (c && c.keep === true)
+        ? `<span style="color:var(--ok)">✓${(c.start != null || c.end != null) ? ` ${c.start ?? 0}-${c.end ?? (e.frames - 1)}` : ""}</span>`
+        : (c && c.keep === false) ? `<span style="color:var(--fail)">✗不要</span>` : "—";
       html += `<tr>
         <td>${e.name.replace("episode_", "#")}</td>
         <td>${esc(e.goal) || "—"}</td>
@@ -405,6 +412,7 @@ async function loadRecordings() {
         <td>${fmtBytes(e.bytes)}</td>
         <td>${mods || "—"}</td>
         <td>${e.stages > 1 ? e.stages + "段" : "未标"}</td>
+        <td>${curCell}</td>
         <td style="white-space:nowrap"><button class="btn" onclick="openEpisodePath('${e.path}')">打开</button>
         <button class="btn" onclick="delRecording('${e.path}','${esc(s.session)}/${esc(e.name)}（${e.frames}帧）')">🗑</button></td>
       </tr>`;
@@ -445,6 +453,11 @@ async function openEpisodePath(path) {
   }
   renderBounds();
   if ($("anno-status")) { $("anno-status").textContent = _epBounds.length ? "已有标注" : "未标注"; $("anno-status").className = "pill"; }
+  // load this episode's keep/discard + useful range (curation.json) if present
+  const curRaw = await fetch(`${path}/curation.json`).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+  _cur = curRaw ? { keep: curRaw.keep ?? null, start: curRaw.start ?? null, end: curRaw.end ?? null }
+                : { keep: null, start: null, end: null };
+  renderCur();
   showFrame(0);
 }
 
@@ -471,6 +484,46 @@ async function saveStages() {
   if (r.ok) { $("anno-status").textContent = `已保存（${r.boundaries} 边界 / ${r.frames} 帧）`; $("anno-status").className = "pill ok"; }
   else { $("anno-status").textContent = "保存失败：" + (r.error || ""); $("anno-status").className = "pill err"; }
 }
+
+/* ── data curation: keep/discard + useful frame range (step 8), auto-saved ── */
+let _cur = { keep: null, start: null, end: null };
+function renderCur() {
+  const n = _epData ? _epData.data.length : 0;
+  const s = _cur.start, e = _cur.end;
+  const rt = (s == null && e == null) ? `全长（${n} 帧）`
+    : `${s ?? 0} – ${e ?? (n - 1)}（${(e ?? (n - 1)) - (s ?? 0) + 1} 帧）`;
+  if ($("cur-range")) $("cur-range").textContent = rt;
+  const kb = $("cur-keep"), db = $("cur-drop");
+  if (kb) kb.className = "btn" + (_cur.keep === true ? " primary" : "");
+  if (db) db.className = "btn" + (_cur.keep === false ? " danger-btn" : "");
+  const st = $("cur-status");
+  if (st) {
+    if (_cur.keep === true) { st.textContent = "✓ 要 · " + rt; st.className = "pill ok"; }
+    else if (_cur.keep === false) { st.textContent = "✗ 不要"; st.className = "pill err"; }
+    else { st.textContent = "未定"; st.className = "pill"; }
+  }
+}
+async function saveCur() {
+  if (!_epPath) return;
+  await api("/api/recordings/curate", { path: _epPath, keep: _cur.keep, start: _cur.start, end: _cur.end });
+}
+function setCurKeep(k) { if (!_epData) return; _cur.keep = k; renderCur(); saveCur(); uiToast(k ? "标记：要" : "标记：不要"); }
+function setCurStart() {
+  if (!_epData) return;
+  _cur.start = parseInt($("ep-slider").value) || 0;
+  if (_cur.keep == null) _cur.keep = true;
+  if (_cur.end != null && _cur.end < _cur.start) _cur.end = _cur.start;
+  renderCur(); saveCur();
+}
+function setCurEnd() {
+  if (!_epData) return;
+  _cur.end = parseInt($("ep-slider").value) || 0;
+  if (_cur.keep == null) _cur.keep = true;
+  if (_cur.start != null && _cur.start > _cur.end) _cur.start = _cur.end;
+  renderCur(); saveCur();
+}
+function resetCurRange() { if (!_epData) return; _cur.start = null; _cur.end = null; renderCur(); saveCur(); }
+function curJump(which) { const v = which === "start" ? _cur.start : _cur.end; if (v != null) showFrame(v); }
 function showFrame(i) {
   if (!_epData) return;
   i = Math.max(0, Math.min(_epData.data.length - 1, parseInt(i) || 0));
@@ -949,6 +1002,12 @@ document.addEventListener("keydown", (ev) => {
   if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT" || ev.target.tagName === "TEXTAREA") return;
   if (ev.key === "ArrowLeft") { ev.preventDefault(); frameStep(ev.shiftKey ? -10 : -1); }
   else if (ev.key === "ArrowRight") { ev.preventDefault(); frameStep(ev.shiftKey ? 10 : 1); }
+  else if (!_epData) return;
+  // curation shortcuts: I=in, O=out, K=keep, X=discard
+  else if (ev.key === "i" || ev.key === "I") { ev.preventDefault(); setCurStart(); }
+  else if (ev.key === "o" || ev.key === "O") { ev.preventDefault(); setCurEnd(); }
+  else if (ev.key === "k" || ev.key === "K") { ev.preventDefault(); setCurKeep(true); }
+  else if (ev.key === "x" || ev.key === "X") { ev.preventDefault(); setCurKeep(false); }
 });
 
 showStep(localStorage.getItem("wbc_step") || "1");

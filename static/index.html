@@ -464,6 +464,26 @@
         </div>
         <pre class="logpane small" id="ep-frame-info" style="margin-top:6px"></pre>
       </div>
+
+      <div class="card highlight">
+        <h3>✅ 数据取舍（要不要 + 有用区间）<span class="pill" id="cur-status">—</span></h3>
+        <div class="row" style="align-items:center;gap:10px">
+          <button class="btn" id="cur-keep" onclick="setCurKeep(true)">✓ 要</button>
+          <button class="btn" id="cur-drop" onclick="setCurKeep(false)">✗ 不要</button>
+          <span style="margin-left:14px">有用区间：<b id="cur-range">全长</b></span>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" onclick="setCurStart()">⊣ 设起点(当前帧)</button>
+          <button class="btn" onclick="setCurEnd()">⊢ 设终点(当前帧)</button>
+          <button class="btn" onclick="curJump('start')">跳到起点</button>
+          <button class="btn" onclick="curJump('end')">跳到终点</button>
+          <button class="btn" onclick="resetCurRange()">重置(全长)</button>
+        </div>
+        <p class="note">每条点 <b>✓要 / ✗不要</b>；要的话拖滑条到有用片段<strong>开头点「设起点」、结尾点「设终点」</strong>（in/out 点，含两端）。
+          <strong>「✗不要」只是打个分类标签（写 <code>curation.json</code> 的 <code>keep:false</code>），不删任何文件 —— 真要删硬盘用右边 🗑。</strong>
+          下游训练读 curation.json 筛选(跳过不要的)+裁剪(只取区间)。键盘 <kbd>I</kbd>=起点 <kbd>O</kbd>=终点 <kbd>K</kbd>=要 <kbd>X</kbd>=不要。</p>
+      </div>
+
       <div class="card">
         <h3>阶段标注（数据清洗）<span class="pill" id="anno-status">—</span></h3>
         <p class="warn">拖到某阶段的<strong>起始帧</strong>，点对应阶段 = 从这帧起算该阶段（到下一个边界）。设完点「保存」写回 data.json。</p>
