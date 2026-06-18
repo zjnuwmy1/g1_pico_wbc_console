@@ -197,7 +197,16 @@ def main():
             _log(f"frame {i}/{len(msgs)} ({_ctl['speed']:.2f}x)")
         time.sleep(dts[i] / max(SPEED_MIN, _ctl["speed"]))
 
-    _log("playback finished" if _run["on"] else "playback stopped")
+    # END-HOLD: keep feeding the final pose at 30 Hz so the deploy stays in
+    # CONTROL and SONIC keeps balancing at the end pose (instead of exiting and
+    # leaving the deploy on a stale frame) — until the operator stops.
+    if _run["on"]:
+        _log("episode done — HOLDING final pose, SONIC keeps balancing; ■ stop when ready")
+    while _run["on"]:
+        s.send(msgs[-1])
+        time.sleep(1.0 / 30.0)
+
+    _log("playback stopped")
     s.close()
     ctx.term()
 

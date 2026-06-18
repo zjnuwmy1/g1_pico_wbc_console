@@ -534,8 +534,8 @@
         <button class="btn" onclick="pbStop()">■ 停止</button>
         <span class="proc-pill" id="pill-playback">未运行</span>
       </div>
-      <p class="note">先点 ①：机器人进 CONTROL、缓动到录制<strong>起始姿势并站稳停住</strong>（录制时本来就站着）。
-        目视确认站稳后再点 ② 按轨迹前进。任何时候点 ■ 停止（机器人保持最后指令，必要时底部急停）。</p>
+      <p class="note">先点 ①：机器人进 CONTROL、<strong>SONIC 持续主动平衡</strong>，缓动到录制<strong>起始姿势并站稳停住</strong>（录制时本来就站着）。
+        等弹出「✅ deploy 已进 CONTROL」+ 目视站稳后再点 ② 按轨迹前进。放完后<strong>保持末姿势、SONIC 继续平衡</strong>，确认安全再点 ■ 停止（必要时底部急停）。</p>
       <pre class="logpane small collapsed" id="log-playback" onclick="this.classList.toggle('collapsed')"></pre>
     </section>
   </main>
