@@ -11,10 +11,15 @@ This is detectable: after Init Done the deploy commands the default standing pos
 with real kp. If motors are under lowcmd, the ACTUAL joint q tracks the COMMANDED
 q (small diff). If not, actual diverges from cmd despite kp>0.
 
-Handover is judged ONLY by the CORE load-bearing joints (legs + waist, high kp) —
-those tracking = the robot executes lowcmd = handover happened. The ARM joints
-(low kp ~14) are SOFT: a free/resting arm sits far from target without meaning no
-handover, so a big arm diff is reported as "arm obstructed/soft", not "no auth".
+CAVEAT (learned the hard way): this snapshot can give a FALSE POSITIVE. The
+robot's idle standing pose ~ the deploy's default standing pose, so the LEG/waist
+joints can match by COINCIDENCE even when the robot isn't executing lowcmd. The
+ARM is the real discriminator — the robot's idle arm pose differs from the
+deploy's commanded arm, so a TRACKING arm = real handover, while an off arm =
+either not-executing (robot sits in its own pose) OR the arm is obstructed. So a
+confident "✓ handed over" needs the ARM to track too, not just the legs. The
+ground truth is motion: if the robot doesn't physically react to the deploy
+(playback doesn't move it), it isn't executing lowcmd regardless of this snapshot.
 
 Compares rt/lowcmd vs rt/lowstate. Prints a JSON verdict.
 
@@ -83,20 +88,26 @@ for i, name, cat in JOINTS:
     rows.append({"joint": name, "cmd": round(cq, 3), "actual": round(aq, 3),
                  "kp": round(kp), "diff": round(d, 3), "ok": ok, "cat": cat})
 
-# handover is decided by the CORE (load-bearing) joints only
-handover = bad_core == 0
-if not handover:
+# A confident YES needs ALL joints to track. The ARM is the key discriminator:
+# the robot's IDLE standing pose ~ the deploy's default standing pose, so the
+# legs can match by COINCIDENCE without the robot executing lowcmd. The arm is
+# where the robot's idle pose differs from the deploy's command, so a tracking
+# arm = real handover; an off arm = either NOT executing (robot sits in its own
+# pose) OR the arm is physically obstructed. Don't claim handover unless the arm
+# tracks too.
+handover = (bad_core == 0 and sag_arm == 0)
+if bad_core:
     verdict = (f"✗ {bad_core} 个承重关节（腿/腰）没跟上 —— 电机没交权，机器人在无视 deploy。"
                "去手柄进 Unitree 调试模式（L2+R2，原生运控脱离）后重起 deploy。")
 elif sag_arm:
-    verdict = (f"✓ 电机已交权（承重关节腿/腰都跟上，Init Done 是真的）。"
-               f"但 {sag_arm} 个手臂关节没到位（kp 低、软）—— 多半是手臂搭在东西上/被挡住"
-               "（左肘比命令更弯=不是重力下垂）。检查手臂周围、必要时扳直再看，"
-               "不影响交权，可继续。")
+    verdict = (f"⚠ 腿/腰数值匹配，但 {sag_arm} 个手臂关节没跟上（停在机器人自己的姿势、≠deploy命令）。"
+               "腿匹配可能只是巧合（机器人闲置站姿≈deploy默认站姿），手臂才暴露真相。两种可能："
+               "(a) **根本没交权** —— 若机器人对 deploy 完全没反应、回放不动，就是这个，去手柄 "
+               "L2+R2 调试模式后重起 deploy；(b) 手臂被挡住/搭在东西上。先确认手臂自由，再看机器人动不动。")
 else:
-    verdict = "✓ 电机已交权，机器人在跟随 lowcmd —— Init Done 是真的"
+    verdict = "✓ 电机已交权（含手臂都跟上，可靠）—— Init Done 是真的，机器人在执行 lowcmd"
 
 _out({
-    "ok": True, "following": handover, "bad": bad_core, "arm_sag": sag_arm,
+    "ok": True, "following": handover, "bad": bad_core, "arm_off": sag_arm,
     "joints": rows, "verdict": verdict,
 })
