@@ -479,6 +479,11 @@
           <button class="btn" onclick="curJump('end')">跳到终点</button>
           <button class="btn" onclick="resetCurRange()">重置(全长)</button>
         </div>
+        <div class="row" style="margin-top:8px;align-items:center">
+          <button class="btn primary" onclick="curNextUnlabeled()" style="font-size:15px">✓ 完成，跳下一条未标 →</button>
+          <span class="pill" id="cur-remaining" style="margin-left:6px">—</span>
+          <span class="hint">（标完当前自动跳到下一个没标过的；键盘 <kbd>Enter</kbd>）</span>
+        </div>
         <p class="note">每条点 <b>✓要 / ✗不要</b>；要的话拖滑条到有用片段<strong>开头点「设起点」、结尾点「设终点」</strong>（in/out 点，含两端）。
           <strong>「✗不要」只是打个分类标签（写 <code>curation.json</code> 的 <code>keep:false</code>），不删任何文件 —— 真要删硬盘用右边 🗑。</strong>
           下游训练读 curation.json 筛选(跳过不要的)+裁剪(只取区间)。键盘 <kbd>I</kbd>=起点 <kbd>O</kbd>=终点 <kbd>K</kbd>=要 <kbd>X</kbd>=不要。</p>

@@ -380,12 +380,15 @@ async function loadRecordings() {
     $("ep-info").textContent = "recordings/ 里还没有 episode。";
     return;
   }
-  // dropdown drives the frame viewer
+  // dropdown drives the frame viewer; _epList (ordered) drives "next unlabeled"
   let opt = "", total = 0, tBytes = 0, tFrames = 0, nKeep = 0, nDrop = 0;
+  _epList = [];
   for (const s of r.sessions) for (const e of s.episodes) {
     total++; tBytes += e.bytes || 0; tFrames += e.frames || 0;
     const c = e.curation;
+    const labeled = !!(c && (c.keep === true || c.keep === false));
     if (c && c.keep === true) nKeep++; else if (c && c.keep === false) nDrop++;
+    _epList.push({ path: e.path, curated: labeled });
     opt += `<option value="${e.path}">${s.session} / ${e.name} · ${e.frames}帧</option>`;
   }
   if (sel) sel.innerHTML = opt;
@@ -421,6 +424,7 @@ async function loadRecordings() {
   }
   if (ov) ov.innerHTML = html;
   $("ep-info").textContent = `共 ${total} 条 episode（${r.sessions.length} 个会话）。`;
+  if ($("cur-remaining")) $("cur-remaining").textContent = `还剩 ${_curRemaining()} 条未标 / 共 ${_epList.length}`;
   if (sel && sel.value) openEpisodePath(sel.value);
 }
 async function delRecording(path, label) {
@@ -487,6 +491,8 @@ async function saveStages() {
 
 /* ── data curation: keep/discard + useful frame range (step 8), auto-saved ── */
 let _cur = { keep: null, start: null, end: null };
+let _epList = [];   // ordered [{path, curated}] for "next unlabeled" navigation
+function _curRemaining() { return _epList.filter((x) => !x.curated).length; }
 function renderCur() {
   const n = _epData ? _epData.data.length : 0;
   const s = _cur.start, e = _cur.end;
@@ -502,10 +508,25 @@ function renderCur() {
     else if (_cur.keep === false) { st.textContent = "✗ 不要"; st.className = "pill err"; }
     else { st.textContent = "未定"; st.className = "pill"; }
   }
+  if ($("cur-remaining")) $("cur-remaining").textContent = `还剩 ${_curRemaining()} 条未标 / 共 ${_epList.length}`;
 }
 async function saveCur() {
   if (!_epPath) return;
+  // reflect the decision in the in-memory list so "next unlabeled" + the counter stay live
+  const it = _epList.find((x) => x.path === _epPath);
+  if (it) it.curated = (_cur.keep === true || _cur.keep === false);
+  if ($("cur-remaining")) $("cur-remaining").textContent = `还剩 ${_curRemaining()} 条未标 / 共 ${_epList.length}`;
   await api("/api/recordings/curate", { path: _epPath, keep: _cur.keep, start: _cur.start, end: _cur.end });
+}
+function curNextUnlabeled() {
+  if (!_epList.length) { uiToast("先「刷新列表」", "warn"); return; }
+  const idx = _epList.findIndex((x) => x.path === _epPath);
+  for (let k = 1; k <= _epList.length; k++) {     // forward from current, wrap, skip current
+    const j = (idx + k) % _epList.length;
+    if (j === idx) continue;
+    if (!_epList[j].curated) { openEpisodePath(_epList[j].path); return; }
+  }
+  uiToast(`🎉 标完了！没有别的未标条目（共 ${_epList.length} 条全有取舍）`, "ok");
 }
 function setCurKeep(k) { if (!_epData) return; _cur.keep = k; renderCur(); saveCur(); uiToast(k ? "标记：要" : "标记：不要"); }
 function setCurStart() {
@@ -1002,8 +1023,9 @@ document.addEventListener("keydown", (ev) => {
   if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT" || ev.target.tagName === "TEXTAREA") return;
   if (ev.key === "ArrowLeft") { ev.preventDefault(); frameStep(ev.shiftKey ? -10 : -1); }
   else if (ev.key === "ArrowRight") { ev.preventDefault(); frameStep(ev.shiftKey ? 10 : 1); }
+  else if (ev.key === "Enter") { ev.preventDefault(); curNextUnlabeled(); }
   else if (!_epData) return;
-  // curation shortcuts: I=in, O=out, K=keep, X=discard
+  // curation shortcuts: I=in, O=out, K=keep, X=discard, Enter=done->next unlabeled
   else if (ev.key === "i" || ev.key === "I") { ev.preventDefault(); setCurStart(); }
   else if (ev.key === "o" || ev.key === "O") { ev.preventDefault(); setCurEnd(); }
   else if (ev.key === "k" || ev.key === "K") { ev.preventDefault(); setCurKeep(true); }
