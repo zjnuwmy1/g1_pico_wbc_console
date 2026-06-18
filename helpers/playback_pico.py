@@ -163,29 +163,22 @@ def main():
     s.bind(f"tcp://*:{POSE_PORT}")
     time.sleep(0.5)  # let the deploy's SUB connect (slow joiner)
 
-    # Enter CONTROL ourselves: send the POSE-mode policy-start command the
-    # streamer sends on entering POSE (start=True, planner=False) a few times so
-    # the deploy switches WAIT_FOR_CONTROL -> CONTROL before the poses arrive.
-    # (This is why playback only needs the deploy at Init Done, not pre-engaged.)
-    _log("engaging policy -> CONTROL (start=True, planner=False)")
-    for _ in range(6):
-        if not _run["on"]:
-            break
-        s.send(build_command_message(start=True, stop=False, planner=False))
-        time.sleep(0.05)
-    time.sleep(0.3)
-
     _log(f"loaded {len(msgs)} frames from {os.path.basename(ep)} @ {_ctl['speed']:.2f}x")
 
-    # STAND FIRST: the recording started from a standing pose, so settle there
-    # before moving. Hold frame 0 (the policy stands/balances and eases the arms
-    # to the start pose) and WAIT until the operator confirms it is stable and
-    # sends 'play' — then play forward. (PB_AUTOPLAY=1 auto-plays after RAMP_HOLD_S.)
-    _log("STANDING & easing to start pose (frame 0) — waiting for 'play'"
+    # STAND FIRST + ENGAGE: the recording started from a standing pose, so settle
+    # there before moving. We hold frame 0 AND keep (re)sending the POSE-mode
+    # policy-start command — because we freshly bound this PUB, the deploy's SUB
+    # needs time to reconnect, and a one-shot start burst gets dropped by the ZMQ
+    # slow-joiner (=> CONTROL never engages, robot ignores the poses). Sending it
+    # every tick guarantees the deploy enters CONTROL once its SUB is up. Hold
+    # until the operator confirms it is standing stable and sends 'play'.
+    # (PB_AUTOPLAY=1 auto-plays after RAMP_HOLD_S instead.)
+    _log("engaging -> CONTROL + STANDING at start pose (frame 0) — waiting for 'play'"
          + (f", auto in {RAMP_HOLD_S:.0f}s" if AUTOPLAY else ""))
     t0 = time.monotonic()
     while _run["on"]:
-        s.send(msgs[0])
+        s.send(build_command_message(start=True, stop=False, planner=False))  # (re)engage CONTROL
+        s.send(msgs[0])                                                        # hold start pose
         if _play["go"]:
             break
         if AUTOPLAY and (time.monotonic() - t0) >= RAMP_HOLD_S:

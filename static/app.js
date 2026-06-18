@@ -272,10 +272,29 @@ async function pbEngage() {
   if (!tok.ok) { uiToast("安全确认未通过：" + (tok.error || ""), "danger"); return; }
   const speed = parseFloat($("pb-speed").value);
   const r = await api("/api/playback/start", { episode: ep, speed, safety_token: tok.safety_token });
-  if (r.ok) uiToast("已进 CONTROL，机器人起身站到起始姿势 —— 目视站稳后点 ②", "ok");
-  else uiToast("启动失败：" + (r.error || ""), "danger");
+  if (!r.ok) { uiToast("启动失败：" + (r.error || ""), "danger"); return; }
+  uiToast("起身中：正在让 deploy 进 CONTROL…", "ok");
+  // OBJECTIVELY confirm the deploy actually engaged (else poses are ignored —
+  // robot just stands in PD-hold and "nothing happens" on play).
+  for (let i = 0; i < 20; i++) {
+    await new Promise((res) => setTimeout(res, 500));
+    const st = await fetch("/api/state").then((x) => x.json()).catch(() => null);
+    if (st && st.teleop && st.teleop.deploy_control) {
+      uiToast("✅ deploy 已进 CONTROL，机器人已接管 —— 目视站稳后点 ②", "ok");
+      return;
+    }
+    if (st && st.procs && (st.procs.playback || {}).alive === false) {
+      uiToast("⚠ 回放进程已退出，看 playback 日志", "danger"); return;
+    }
+  }
+  uiToast("⚠ deploy 10s 内没进 CONTROL！检查：① 机器人遥控器已 L2+R2 调试模式？② 看 playback 日志 start 是否发出。点 ■ 停止后重来", "danger");
 }
 async function pbPlay() {
+  const st = await fetch("/api/state").then((x) => x.json()).catch(() => null);
+  if (!st || !(st.teleop || {}).deploy_control) {
+    uiToast("deploy 还没进 CONTROL —— 机器人没接管，现在回放无效。先点①等它接管（看到「✅已进CONTROL」）", "danger");
+    return;
+  }
   if (!(await uiConfirm("② 开始回放：机器人将按录制轨迹前进。\n已目视确认站稳、急停在手？"))) return;
   const r = await api("/api/playback/play", {});
   uiToast(r.ok ? "开始前进回放" : "失败：" + (r.error || "回放进程没在站立等待？"), r.ok ? "ok" : "danger");
