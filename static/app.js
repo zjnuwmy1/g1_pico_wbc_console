@@ -74,6 +74,7 @@ function showStep(n) {
   // auto-load the data viewer the first time you open it
   if (String(n) === "8" && $("ep-sel") && !$("ep-sel").options.length) loadRecordings();
   if (String(n) === "7") loadFrozenRelease();
+  if (String(n) === "9") { pbLoad(); pbRefresh(); }
 }
 document.querySelectorAll(".step-tab").forEach((t) => {
   t.tabIndex = 0;  // keyboard-reachable
@@ -227,6 +228,56 @@ async function setFrozenRelease(v) {
   const r = await api("/api/hand/frozen_release", { seconds: parseFloat(v) });
   if (r.ok) { frzLabel(r.seconds); uiToast(r.seconds === 0 ? "上半身锁定：手一直保持抓握" : `上半身锁定 ${r.seconds.toFixed(1)} 秒后松手`); }
   else uiToast("设置失败：" + (r.error || ""), "danger");
+}
+
+/* ── step 9: playback a recorded episode to the real robot ── */
+function pbSpeedLabel(v) { const e = $("pb-speed-val"); if (e) e.textContent = parseFloat(v).toFixed(2) + "x"; }
+function pbSpeedLive(v) { pbSpeedLabel(v); api("/api/playback/speed", { speed: parseFloat(v) }); }  // live mid-playback
+async function pbLoad() {
+  const sel = $("pb-sel"); if (!sel) return;
+  const r = await fetch("/api/recordings").then((x) => x.json()).catch(() => null);
+  if (!r || !r.sessions || !r.sessions.length) { sel.innerHTML = "<option>（暂无录制）</option>"; return; }
+  let h = "";
+  for (const s of r.sessions) for (const e of s.episodes)
+    h += `<option value="${e.path}">${s.session}/${e.name} · ${e.frames}帧 · ${e.seconds || 0}s</option>`;
+  sel.innerHTML = h;
+}
+async function pbRefresh() {
+  const st = await fetch("/api/state").then((x) => x.json()).catch(() => null);
+  const ul = $("pb-precond-list"), pill = $("pb-precond");
+  if (!st || !ul) return;
+  const p = st.procs || {}, t = st.teleop || {};
+  const control = !!t.deploy_control;
+  const z = (n) => p[n] && p[n].alive;
+  const occ = z("pico_streamer") || z("gui_drive");
+  const items = [
+    [control, "SONIC deploy 在 CONTROL（策略已 start）", "去步骤5启动策略并 start 进 CONTROL"],
+    [!occ, "5556 已空闲（PICO数据流 / 手动驾驶 已停）", "先停 pico_streamer / gui_drive"],
+  ];
+  ul.innerHTML = items.map(([ok, label, fix]) =>
+    `<li><span style="color:${ok ? "var(--ok)" : "var(--fail)"}">${ok ? "✓" : "✗"}</span> ${label}${ok ? "" : ` <span class="hint">— ${fix}</span>`}</li>`).join("");
+  const ready = items.every((x) => x[0]);
+  if (pill) { pill.textContent = ready ? "就绪" : "未就绪"; pill.className = "pill " + (ready ? "ok" : "err"); }
+}
+async function pbStart() {
+  const mode = (document.querySelector('input[name="pb-mode"]:checked') || {}).value;
+  if (mode !== "pico") { uiToast("电机层面稍后实现，先用 PICO 层面", "warn"); return; }
+  const ep = $("pb-sel").value;
+  if (!ep || ep[0] !== "/") { uiToast("先选一条 episode", "warn"); return; }
+  const checklist = {};
+  document.querySelectorAll(".pb-ck").forEach((c) => { checklist[c.dataset.key] = c.checked; });
+  const typed = ($("pb-typed").value || "").trim();
+  if (!(await uiConfirm("确认开始回放？机器人会按录制运动。\n场地清空、急停在手、先 0.5x？"))) return;
+  const tok = await api("/api/safety/confirm", { checklist, typed });
+  if (!tok.ok) { uiToast("安全确认未通过：" + (tok.error || ""), "danger"); return; }
+  const speed = parseFloat($("pb-speed").value);
+  const r = await api("/api/playback/start", { episode: ep, speed, safety_token: tok.safety_token });
+  if (r.ok) uiToast(`回放已开始 @ ${speed.toFixed(2)}x（先缓动到第0帧）`);
+  else uiToast("启动失败：" + (r.error || ""), "danger");
+}
+async function pbStop() {
+  const r = await api("/api/procs/playback/stop", {});
+  uiToast(r.ok ? "回放已停止（机器人保持最后指令，必要时急停）" : "停止失败：" + (r.error || ""), r.ok ? "ok" : "danger");
 }
 
 async function restartCamera(btn) {

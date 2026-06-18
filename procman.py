@@ -281,6 +281,11 @@ class ProcessManager:
         self._lock = threading.Lock()
         # Hand model for the sim: "dex3" (upstream) or "revo2" (BrainCo overlay).
         self.hand_mode: str = "dex3"
+        # episode-playback target (set by the server before start("playback"))
+        self._pb: dict = {"episode": "", "speed": 0.5}
+
+    def prepare_playback(self, episode: str, speed: float) -> None:
+        self._pb = {"episode": episode, "speed": speed}
 
     # ── specs ────────────────────────────────────────────────────────────────
     def _spec(self, name: str, vis: bool = False) -> ProcSpec:
@@ -341,6 +346,14 @@ class ProcessManager:
                 "gui_drive", [str(config.VENV_PY), str(config.GUI_DRIVE_PY)],
                 cwd=config.REPO_ROOT, profile="py",
             )
+        if name == "playback":
+            return ProcSpec(
+                "playback",
+                [str(config.VENV_PY), str(config.PLAYBACK_PY),
+                 str(self._pb["episode"]), str(self._pb["speed"])],
+                cwd=config.REPO_ROOT, profile="py",
+                env_extra={"GEAR_SONIC_ROOT": str(config.REPO_ROOT)},
+            )
         if name == "recorder":
             import checks as _checks
             robot = _checks.find_real_robot_interface()
@@ -362,7 +375,7 @@ class ProcessManager:
             )
         raise KeyError(name)
 
-    KNOWN = ("sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "recorder", "install_pico", "pc_service")
+    KNOWN = ("sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "recorder", "install_pico", "pc_service", "playback")
 
     # ── API ──────────────────────────────────────────────────────────────────
     def get(self, name: str) -> Proc | None:
@@ -381,13 +394,16 @@ class ProcessManager:
             p = self._procs.get("deploy_real")
             if p and p.alive():
                 return {"ok": False, "error": "deploy_real 还在运行，先优雅停止它"}
-        # gui_drive and pico_streamer both bind ZMQ 5556 -> mutually exclusive.
-        if name in ("gui_drive", "pico_streamer"):
-            other = "pico_streamer" if name == "gui_drive" else "gui_drive"
-            p = self._procs.get(other)
-            if p and p.alive():
-                return {"ok": False,
-                        "error": f"先停止 {other} — 它和 {name} 都占用 ZMQ 5556，不能同时跑"}
+        # gui_drive, pico_streamer and playback all bind ZMQ 5556 -> mutually exclusive.
+        _z5556 = ("gui_drive", "pico_streamer", "playback")
+        if name in _z5556:
+            for other in _z5556:
+                if other == name:
+                    continue
+                p = self._procs.get(other)
+                if p and p.alive():
+                    return {"ok": False,
+                            "error": f"先停止 {other} — 它和 {name} 都占用 ZMQ 5556，不能同时跑"}
         with self._lock:
             existing = self._procs.get(name)
             if existing and existing.alive():

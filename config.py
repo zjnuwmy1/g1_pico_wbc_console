@@ -50,6 +50,11 @@ GUI_DRIVE_PY = CONSOLE_ROOT / "helpers" / "gui_drive.py"
 RECORDER_PY = CONSOLE_ROOT / "helpers" / "episode_recorder.py"
 RECORDINGS_DIR = CONSOLE_ROOT / "recordings"
 
+# Episode playback: replays a recorded episode's teleop command on 5556 back
+# through the running SONIC deploy (PICO-output-level). Binds ZMQ 5556 -> mutually
+# exclusive with pico_streamer / gui_drive. Drives the REAL robot -> safety-gated.
+PLAYBACK_PY = CONSOLE_ROOT / "helpers" / "playback_pico.py"
+
 STATE_FILE = CONSOLE_ROOT / "state" / "state.json"
 LOGS_DIR = CONSOLE_ROOT / "logs"
 STATIC_DIR = CONSOLE_ROOT / "static"

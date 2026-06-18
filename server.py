@@ -333,6 +333,27 @@ def set_frozen_release(seconds) -> dict:
     return {"ok": True, "seconds": s}
 
 
+def run_playback_start(body) -> dict:
+    """Start PICO-level episode playback (caller must have consumed the safety
+    token). Validates the episode path is inside recordings/ and that the SONIC
+    deploy is actually in CONTROL (else the poses go nowhere / unsafe)."""
+    rel = body.get("episode", "")
+    if not rel.startswith("/recordings/"):
+        return {"ok": False, "error": "bad episode path"}
+    ep = (config.RECORDINGS_DIR / rel[len("/recordings/"):]).resolve()
+    root = config.RECORDINGS_DIR.resolve()
+    if root not in ep.parents or not (ep / "data.json").is_file():
+        return {"ok": False, "error": "episode 不存在"}
+    if not teleop_state().get("deploy_control"):
+        return {"ok": False, "error": "SONIC deploy 未在 CONTROL —— 先在步骤5启动策略并 start 进 CONTROL"}
+    try:
+        speed = max(0.25, min(1.0, float(body.get("speed", 0.5) or 0.5)))
+    except (TypeError, ValueError):
+        speed = 0.5
+    PM.prepare_playback(str(ep), speed)
+    return PM.start("playback")
+
+
 # ── checks cache ─────────────────────────────────────────────────────────────
 _checks_cache: dict[str, list] = {}
 
@@ -693,6 +714,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/recordings/delete":
             self._json(200, delete_recording(body.get("path", "")))
+            return
+        if u.path == "/api/playback/start":
+            err = consume_safety_token(body.get("safety_token"))
+            if err:
+                self._json(403, {"ok": False, "error": err})
+                return
+            self._json(200, run_playback_start(body))
+            return
+        if u.path == "/api/playback/speed":
+            try:
+                sp = max(0.25, min(1.0, float(body.get("speed"))))
+            except (TypeError, ValueError):
+                self._json(400, {"ok": False, "error": "bad speed"})
+                return
+            self._json(200, PM.write_stdin("playback", (json.dumps({"speed": sp}) + "\n").encode()))
             return
         if u.path == "/api/record":
             # relay episode-recorder control to the recorder process via its stdin

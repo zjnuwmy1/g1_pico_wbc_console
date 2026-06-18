@@ -22,6 +22,7 @@
     <div class="step-tab danger" data-step="6"><span class="num">6</span>手动驾驶</div>
     <div class="step-tab" data-step="7"><span class="num">7</span>数据录制</div>
     <div class="step-tab" data-step="8"><span class="num">8</span>数据查看</div>
+    <div class="step-tab danger" data-step="9"><span class="num">9</span>回放</div>
   </nav>
 
   <main>
@@ -479,6 +480,60 @@
         </div>
         <pre class="logpane small" id="anno-list"></pre>
       </div>
+    </section>
+
+    <!-- ── STEP 9: playback to real robot ── -->
+    <section class="step-panel" id="panel-9">
+      <h2 class="danger-text">步骤 9 · 回放到真机</h2>
+      <p class="warn">⚠ 把某条录制回放到真 G1 —— <strong>机器人会按录的轨迹运动</strong>。先确认 SONIC 策略在 CONTROL、场地安全、急停在手。先 0.5x 半速试！</p>
+
+      <div class="card">
+        <h3>① 回放模式</h3>
+        <label><input type="radio" name="pb-mode" value="pico" checked> <strong>PICO 输出层面</strong>（把录的遥操作动作重发给 SONIC 策略 → 策略转电机指令、管平衡，机器人可站地上）</label><br>
+        <label style="color:var(--dim)"><input type="radio" name="pb-mode" value="motor" disabled> 电机层面（下半身仍由 SONIC 平衡、只回放上半身关节）—— 稍后实现</label>
+        <p class="note">PICO 层面要求 <strong>SONIC deploy 已在 CONTROL</strong>，且 <strong>PICO 数据流/手动驾驶已停</strong>（同占 5556）。若手桥在跑，会顺带回放手的抓握。</p>
+      </div>
+
+      <div class="card">
+        <h3>② 选 episode + 速度</h3>
+        <div class="row" style="align-items:center">
+          <button class="btn" onclick="pbLoad()">刷新列表</button>
+          <label>episode：<select id="pb-sel" style="min-width:320px"></select></label>
+        </div>
+        <div class="row" style="align-items:center;gap:12px;margin-top:8px">
+          <label style="min-width:80px">回放速度</label>
+          <input type="range" id="pb-speed" min="0.25" max="1" step="0.05" value="0.5" style="flex:1;min-width:160px"
+                 oninput="pbSpeedLabel(this.value)" onchange="pbSpeedLive(this.value)">
+          <span class="pill ok" id="pb-speed-val" style="min-width:60px;text-align:center">0.50x</span>
+        </div>
+        <p class="note">默认 0.5x 半速更安全；回放中拖滑块<strong>即时变速</strong>。开播会先用 2 秒缓动到第 0 帧再前进（防猛动）。</p>
+      </div>
+
+      <div class="card">
+        <h3>③ 前置条件 <span class="pill" id="pb-precond">—</span></h3>
+        <ul class="checklist" id="pb-precond-list"><li class="hint">点下面「检查」</li></ul>
+        <button class="btn" onclick="pbRefresh()">检查前置条件</button>
+      </div>
+
+      <div class="card danger-card">
+        <h3>④ 安全确认（每次回放都需要）</h3>
+        <ul class="checklist">
+          <li><label><input type="checkbox" class="pb-ck" data-key="sim_rehearsed"> ① 仿真流程已演练（含急停）</label></li>
+          <li><label><input type="checkbox" class="pb-ck" data-key="robot_secured"> ② 机器人已悬挂 / 空旷场地，当前姿态已目视确认</label></li>
+          <li><label><input type="checkbox" class="pb-ck" data-key="debug_mode"> ③ 已进调试模式（L2+R2），原生运控脱离</label></li>
+          <li><label><input type="checkbox" class="pb-ck" data-key="estop_person"> ④ 已指定急停员</label></li>
+        </ul>
+        <div class="row">
+          <input type="text" id="pb-typed" placeholder="输入「确认姿态」">
+        </div>
+      </div>
+
+      <div class="step-actions">
+        <button class="btn primary" id="pb-start" onclick="pbStart()">▶ 开始回放</button>
+        <button class="btn danger-btn" onclick="pbStop()">■ 停止回放</button>
+        <span class="proc-pill" id="pill-playback">未运行</span>
+      </div>
+      <pre class="logpane small collapsed" id="log-playback" onclick="this.classList.toggle('collapsed')"></pre>
     </section>
   </main>
 </div>
