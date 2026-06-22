@@ -33,7 +33,7 @@ function locoModeLabel(n, name) {
   return zh ? `${n} ${zh}` : `${n} ${name || ""}`;
 }
 const logSeqs = {};            // proc name -> last seq
-const LOG_PROCS = ["install_pico", "pc_service", "sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "recorder"];
+const LOG_PROCS = ["install_pico", "pc_service", "sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "recorder", "convert_dataset", "act_train", "act_infer"];
 // pico_streamer log is mirrored into two panes (step 4 + step 5)
 const LOG_PANES = {
   install_pico: ["log-install_pico"], pc_service: ["log-pc_service"],
@@ -43,6 +43,9 @@ const LOG_PANES = {
   brainco_hand: ["log-brainco_hand"],
   gui_drive: ["log-gui_drive"],
   recorder: ["log-recorder"],
+  convert_dataset: ["log-convert_dataset"],
+  act_train: ["log-act_train"],
+  act_infer: ["log-act_infer"],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -75,7 +78,7 @@ function showStep(n) {
   if (String(n) === "8" && $("ep-sel") && !$("ep-sel").options.length) loadRecordings();
   if (String(n) === "7") loadFrozenRelease();
   if (String(n) === "9") { pbLoad(); pbRefresh(); }
-  if (String(n) === "10") trainLoadSessions();
+  if (String(n) === "10") { trainLoadSessions(); trainOverview(); }
 }
 document.querySelectorAll(".step-tab").forEach((t) => {
   t.tabIndex = 0;  // keyboard-reachable
@@ -329,22 +332,149 @@ async function trainLoadSessions() {
 }
 function trainSelAll(c) { document.querySelectorAll(".train-sess:not(:disabled)").forEach((x) => { x.checked = c; }); }
 function _trainSel() { return [...document.querySelectorAll(".train-sess:checked")].map((x) => x.value); }
-async function trainConvert() {
+async function trainEnqueue() {
   const sessions = _trainSel();
-  if (!sessions.length) { uiToast("先勾选要训练的会话（至少一个有 ✓要 的）", "warn"); return; }
-  const r = await api("/api/train/convert", {
-    sessions, repo_id: ($("train-repo").value || "").trim(),
-    images: $("train-images").value, touch: $("train-touch").checked,
-  });
-  uiToast(r.ok ? "开始转换数据集（看下面日志，几分钟）" : "转换失败：" + (r.error || ""), r.ok ? "ok" : "danger");
+  if (!sessions.length) { uiToast("先勾选要训练的会话(至少一个有 ✓要 的)", "warn"); return; }
+  const repo = ($("train-repo").value || "").trim();
+  if (!repo) { uiToast("先填模型名", "warn"); return; }
+  const images = $("train-images").value, touch = $("train-touch").checked;
+  const steps = parseInt($("train-steps").value) || 100000;
+  const r = await api("/api/train/enqueue", { sessions, repo_id: repo, images, touch, steps });
+  if (r.ok) {
+    uiToast(`已入队：${r.job.repo_id}(${images}${touch ? "+touch" : ""}, ${sessions.length}会话, ${steps}步)`, "ok");
+    // auto-bump a trailing number so the next enqueue won't name-collide
+    $("train-repo").value = repo.replace(/(\d+)(?!.*\d)/, (m) => parseInt(m) + 1);
+    trainOverview();
+  } else uiToast("入队失败：" + (r.error || ""), "danger");
 }
-async function trainStart() {
-  if (!(await uiConfirm("开始 ACT 训练？\n数据集要先①转换好；训练会在后台跑几小时。"))) return;
-  const r = await api("/api/train/start", {
-    repo_id: ($("train-repo").value || "").trim(), steps: parseInt($("train-steps").value) || 100000,
-  });
-  uiToast(r.ok ? "训练已启动（后台跑，看 loss）" : "启动失败：" + (r.error || ""), r.ok ? "ok" : "danger");
+
+// inline SVG loss sparkline (log-y so early drop + late detail both read)
+function _spark(loss) {
+  if (!loss || loss.length < 2) return `<div class="spark-empty">暂无 loss（训练启动后出现）</div>`;
+  const W = 300, H = 54, pad = 3;
+  const steps = loss.map((p) => p.step);
+  const x0 = Math.min(...steps), x1 = Math.max(...steps);
+  const ly = loss.map((p) => Math.log10(Math.max(p.loss, 1e-4)));
+  const y0 = Math.min(...ly), y1 = Math.max(...ly);
+  const sx = (s) => pad + (W - 2 * pad) * (x1 > x0 ? (s - x0) / (x1 - x0) : 0);
+  const sy = (v) => pad + (H - 2 * pad) * (y1 > y0 ? (Math.log10(Math.max(v, 1e-4)) - y1) / (y0 - y1) : 0.5);
+  let d = "";
+  loss.forEach((p, i) => { d += (i ? "L" : "M") + sx(p.step).toFixed(1) + "," + sy(p.loss).toFixed(1) + " "; });
+  const last = loss[loss.length - 1];
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <path d="${d}" fill="none" stroke="var(--acc)" stroke-width="1.5"/>
+    <circle cx="${sx(last.step).toFixed(1)}" cy="${sy(last.loss).toFixed(1)}" r="2.2" fill="var(--ok)"/></svg>`;
 }
+function _fmt(n) { return n == null ? "—" : (n >= 1000 ? (n / 1000).toFixed(n % 1000 ? 1 : 0) + "K" : "" + n); }
+
+function renderModels(models) {
+  const host = $("train-models");
+  if (!host) return;
+  if (!models || !models.length) { host.innerHTML = `<span class="hint">还没有训练好的模型。上面新建一个训练。</span>`; return; }
+  host.innerHTML = models.map((m) => {
+    const imgChip = m.images === "rgbd" ? `<span class="chip rgbd">RGBD</span>` : `<span class="chip rgb">RGB</span>`;
+    const touchChip = m.touch ? `<span class="chip touch">+触觉</span>` : "";
+    const prog = m.steps_target ? Math.round(100 * (m.last_step || 0) / m.steps_target) : 0;
+    const statusChip = m.status === "training" ? `<span class="chip warn">训练中 ${prog}%</span>`
+      : (m.status === "failed" ? `<span class="chip warn">失败</span>` : `<span class="chip touch">✓ 完成</span>`);
+    const ckOpts = (m.checkpoints || []).slice().reverse()
+      .map((c) => `<option value="${c}">${c === "last" ? "最新(last)" : "step " + c}</option>`).join("");
+    const deployable = (m.checkpoints || []).length > 0 && m.status !== "training";
+    return `<div class="model-card ${m.status}">
+      <h4>${m.repo_id}</h4>
+      <div class="chips">${imgChip}${touchChip}${statusChip}
+        <span class="chip">${_fmt(m.episodes)} 段</span><span class="chip">${_fmt(m.frames)} 帧</span></div>
+      ${_spark(m.loss)}
+      <div class="model-stat">loss <b>${m.final_loss != null ? m.final_loss.toFixed(3) : "—"}</b>
+        · step <b>${_fmt(m.last_step)}</b>/${_fmt(m.steps_target)}
+        · 动作 <b>${m.action_dim}</b>d · 状态 <b>${m.state_dim}</b>d</div>
+      <div class="model-actions">
+        <select id="ck-${m.dir}" ${deployable ? "" : "disabled"}>${ckOpts || "<option>无</option>"}</select>
+        <button class="btn primary" ${deployable ? "" : "disabled"} onclick="deployModel('${m.repo_id}','${m.dir}')">▶ 部署</button>
+        <button class="btn" onclick="deleteModel('${m.dir}','${m.repo_id}')">🗑</button>
+      </div></div>`;
+  }).join("");
+}
+
+function renderQueue(queue) {
+  const host = $("train-queue");
+  if (!host) return;
+  const active = (queue || []).filter((j) => j.status !== "done");
+  if (!active.length) { host.innerHTML = `<span class="hint">队列空。</span>`; return; }
+  const L = { queued: "排队", converting: "转换中", training: "训练中", failed: "失败" };
+  host.innerHTML = active.map((j) => {
+    const cfg = `${j.images}${j.touch ? "+touch" : ""}, ${Array.isArray(j.sessions) ? j.sessions.length + "会话" : j.sessions}, ${_fmt(j.steps)}步`;
+    const err = j.error ? ` <span class="hint" style="color:var(--fail)">${j.error}</span>` : "";
+    return `<div class="qrow"><span class="qstat ${j.status}">${L[j.status] || j.status}</span>
+      <b>${j.repo_id}</b> <span class="hint">${cfg}</span>${err}</div>`;
+  }).join("");
+}
+
+async function trainOverview() {
+  const r = await fetch("/api/train/overview").then((x) => x.json()).catch(() => null);
+  if (!r || !r.ok) return;
+  const p = $("train-env-pill");
+  if (p) { if (r.env_ready) { p.textContent = "环境就绪"; p.className = "pill ok"; } else { p.textContent = "环境装中…"; p.className = "pill err"; } }
+  renderQueue(r.queue);
+  renderModels(r.models);
+}
+function _trainPoll() { if ($("panel-10") && $("panel-10").classList.contains("active")) trainOverview(); }
+
+async function deleteModel(dir, repo) {
+  if (!(await uiConfirm(`移除模型 ${repo}？\n移到回收站 training/_trash/（可恢复；数据集和录制不动）。`))) return;
+  const r = await api("/api/train/delete_model", { dir });
+  uiToast(r.ok ? (r.note || "已移除") : "失败：" + (r.error || ""), r.ok ? "ok" : "danger");
+  trainOverview();
+}
+
+// ▶ deploy a trained model to the real robot (ACT inference -> SONIC), same
+// stand-first / confirm-CONTROL flow as playback.
+async function deployModel(repo, dir) {
+  const sel = $("ck-" + dir);
+  const ck = sel ? sel.value : "last";
+  const checklist = {};
+  document.querySelectorAll(".dep-ck").forEach((c) => { checklist[c.dataset.key] = c.checked; });
+  const typed = ($("deploy-typed").value || "").trim();
+  if (!(await uiConfirm(`部署 ${repo}（${ck}）？\n这会【启动策略进 CONTROL】，由模型实时驱动机器人 —— 先 HOLD 站稳，再点「② 执行」。\n场地清空、急停在手？`))) return;
+  const tok = await api("/api/safety/confirm", { checklist, typed });
+  if (!tok.ok) { uiToast("安全确认未通过：" + (tok.error || ""), "danger"); return; }
+  const r = await api("/api/infer/start", { dir, checkpoint: ck, safety_token: tok.safety_token });
+  if (!r.ok) { uiToast("启动失败：" + (r.error || ""), "danger"); return; }
+  uiToast("起身中：让 deploy 进 CONTROL（策略服务器加载约几秒）…", "ok");
+  for (let i = 0; i < 40; i++) {
+    await new Promise((res) => setTimeout(res, 500));
+    const st = await fetch("/api/state").then((x) => x.json()).catch(() => null);
+    if (st && st.teleop && st.teleop.deploy_control) {
+      uiToast("✅ deploy 已进 CONTROL，机器人 HOLD 住首个预测姿势 —— 目视站稳后点「② 执行」", "ok"); return;
+    }
+    if (st && st.procs && (st.procs.act_infer || {}).alive === false) {
+      uiToast("⚠ 推理进程已退出，看 act_infer 日志", "danger"); return;
+    }
+  }
+  uiToast("⚠ 20s 内没进 CONTROL —— 检查：① L2+R2 调试模式？② act_infer 日志（策略服务器/相机/DDS）", "danger");
+}
+async function inferPlay() {
+  const st = await fetch("/api/state").then((x) => x.json()).catch(() => null);
+  if (!st || !(st.teleop || {}).deploy_control) {
+    uiToast("deploy 还没进 CONTROL —— 先点某个模型的「▶ 部署」等它接管（看到「✅已进CONTROL」）", "danger"); return;
+  }
+  if (!(await uiConfirm("② 开始自主执行：机器人将由模型实时控制动作。\n已目视站稳、急停在手？"))) return;
+  const r = await api("/api/infer/play", {});
+  uiToast(r.ok ? "▶ 自主执行中" : "失败：" + (r.error || "推理进程没在 HOLD 等待？"), r.ok ? "ok" : "danger");
+}
+async function inferStop() {
+  const r = await api("/api/procs/act_infer/stop", {});
+  uiToast(r.ok ? "已停止（机器人保持最后指令，必要时急停 o）" : "停止失败：" + (r.error || ""), r.ok ? "ok" : "danger");
+}
+// live test controls -> act_infer
+function inferCtl(o) { return api("/api/infer/ctl", o); }
+function inferCmd(c) { inferCtl({ cmd: c }); uiToast(c === "pause" ? "⏸ 本轮保持（手指延时后松开）" : (c === "next" ? "⟲ 回初始位 → 新一轮" : c), "ok"); }
+function inferSpeed(v) { const e = $("infer-speed-val"); if (e) e.textContent = parseFloat(v).toFixed(2) + "x"; inferCtl({ speed: parseFloat(v) }); }
+function inferLoop(b) { inferCtl({ loop: !!b }); uiToast(b ? "🔁 循环开（单轮到点自动回初始重来）" : "循环关", "ok"); }
+function inferRound(v) { inferCtl({ round_s: parseFloat(v) || 0 }); }
+function inferRelease(v) { inferCtl({ release_s: parseFloat(v) || 0 }); }
+function inferRefresh() { inferCtl({ cmd: "refresh" }); uiToast("🔄 刷新frame1（重新预测初始姿势，平滑过渡）", "ok"); }
+function inferRampIn(v) { const e = $("infer-rampin-val"); if (e) e.textContent = parseFloat(v).toFixed(1) + "s"; inferCtl({ ramp_in_s: parseFloat(v) || 0 }); }
 
 async function restartCamera(btn) {
   const old = btn ? btn.textContent : "";
@@ -633,6 +763,7 @@ async function exportMp4(kind = "head") {
    danger button that gates on it look unclickable ("点不动"). This self-drawn
    modal never gets blocked. Returns a Promise<bool>. ── */
 function uiConfirm(message) {
+  if (window.__t) message = window.__t(message);   // i18n: translate before showing
   return new Promise((resolve) => {
     const ov = document.createElement("div");
     ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center";
@@ -663,6 +794,7 @@ function uiConfirm(message) {
    (incl. E-STOP) can give zero feedback. This in-page toast can't be blocked.
    kind: ok / warn / danger. danger is sticky until clicked; others auto-dismiss. ── */
 function uiToast(message, kind = "ok") {
+  if (window.__t) message = window.__t(message);   // i18n: translate before showing
   let host = $("toast-host");
   if (!host) {
     host = document.createElement("div");
@@ -843,6 +975,9 @@ function renderState(s) {
   pillFor("brainco_hand", procs, "pill-brainco_hand");
   pillFor("gui_drive", procs, "pill-gui_drive");
   pillFor("recorder", procs, "pill-recorder");
+  pillFor("convert_dataset", procs, "pill-convert_dataset");
+  pillFor("act_train", procs, "pill-act_train");
+  pillFor("act_infer", procs, "pill-act_infer");
   // streamer 退出时 xrt SDK 析构必崩(rc=-6/SIGABRT)，且 A+B+X+Y 急停也会主动退出——
   // 都属正常，不显示成「异常退出」。
   const ps = procs["pico_streamer"];
@@ -1078,3 +1213,35 @@ showStep(localStorage.getItem("wbc_step") || "1");
 poll();
 setInterval(poll, 1000);
 setInterval(pollLogs, 1000);
+setInterval(_trainPoll, 4000);  // live queue + model loss while on step 10
+
+// live robot viewpoint while ACT inference is running (act_infer mirrors the
+// head-camera frame; the console serves it). Preload-swap to avoid flicker.
+let _camFrames = 0, _camWin = Date.now();
+function _inferCamTick() {
+  const wrap = $("infer-cam-wrap");
+  if (!wrap) return;
+  if (!procAlive("act_infer")) { wrap.style.display = "none"; return; }
+  wrap.style.display = "";
+  const img = $("infer-cam");
+  const n = new Image();
+  n.onload = () => {
+    img.src = n.src;
+    _camFrames++;
+    const dt = Date.now() - _camWin;
+    if (dt >= 1000) {
+      const f = $("infer-cam-fps");
+      if (f) { f.textContent = (_camFrames * 1000 / dt).toFixed(0) + " fps"; f.className = "pill ok"; }
+      _camFrames = 0; _camWin = Date.now();
+    }
+  };
+  n.onerror = () => { const f = $("infer-cam-fps"); if (f) { f.textContent = "等画面…"; f.className = "pill"; } };
+  n.src = "/api/infer/frame?t=" + Date.now();
+  // depth view — only RGBD models write it; 404 hides the pane
+  const dwrap = $("infer-depth-wrap");
+  const dn = new Image();
+  dn.onload = () => { const di = $("infer-depth"); if (di) di.src = dn.src; if (dwrap) dwrap.style.display = ""; };
+  dn.onerror = () => { if (dwrap) dwrap.style.display = "none"; };
+  dn.src = "/api/infer/depth_frame?t=" + Date.now();
+}
+setInterval(_inferCamTick, 130);

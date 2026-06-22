@@ -9,6 +9,10 @@
 <body>
 <header>
   <h1>G1 × PICO 4 Ultra 全身遥操作向导 <span class="sub">GR00T-WholeBodyControl / GEAR-SONIC</span></h1>
+  <div class="langtoggle" role="group" aria-label="Language">
+    <button id="lang-zh" class="langbtn active" onclick="setLang('zh')">中</button>
+    <button id="lang-en" class="langbtn" onclick="setLang('en')">EN</button>
+  </div>
 </header>
 
 <div class="layout">
@@ -327,7 +331,7 @@
               <option value="1">Slow Walk 慢走</option>
               <option value="3">Run 跑</option>
               <option value="4">Squat 蹲</option>
-              <option value="6">Kneel 跪</option>
+              <option value="5">Kneel 跪(两腿)</option>
               <option value="7">Lying 趴</option>
               <option value="8">Crawl 爬</option>
               <option value="14">Elbow Crawl 肘爬</option>
@@ -335,6 +339,7 @@
           </label>
           <label>速度：<input type="range" id="drive-speed" min="-1" max="3" step="0.1" value="-1" oninput="driveSend()"><span id="drive-speed-val">默认</span></label>
         </div>
+        <p class="warn" style="margin-top:6px">⚠️ 选 <strong>趴/爬/肘爬</strong> 时<strong>不会直接跳</strong>过去 —— 会自动<strong>逐级下降</strong>(站→蹲→跪→趴→爬→肘爬,每级停约 4.5 秒让 SONIC 落稳),起身反向;<strong>下降/起身过程中移动和转向被锁住</strong>。整套到爬约 15–20 秒,看 gui_drive 日志和「步态」标签跟进度。<strong>务必先在 sim(deploy_sim)里验证</strong>再上真机。</p>
       </div>
 
       <div class="card">
@@ -568,16 +573,16 @@
     <!-- ── STEP 10: ACT training ── -->
     <section class="step-panel" id="panel-10">
       <h2>步骤 10 · 训练 ACT</h2>
-      <p class="warn">用你<strong>清洗过(要+区间)</strong>的录制训练 ACT 策略。动作 = PICO 指令(含腰）→ 推理时回灌 SONIC deploy。先<strong>① 转换数据集</strong>，再<strong>② 开始训练</strong>。</p>
+      <p class="warn">用你<strong>清洗过(要+区间)</strong>的录制训练 ACT 策略。动作 = PICO 指令(含腰)→ 推理时回灌 SONIC deploy。配置好点<strong>「加入训练队列」</strong> —— 可一次排几个不同配置(RGB/RGBD × 带/不带触觉)，自动依次 转换→训练，练好的在下面对比、部署。</p>
 
       <div class="card">
-        <h3>① 选数据 + 配置 <span class="pill" id="train-env-pill">检查环境…</span></h3>
-        <div id="train-sessions" class="note">点「刷新」加载会话（勾选要训练的，只用其中 ✓要 的 episode）。</div>
+        <h3>① 新建训练 <span class="pill" id="train-env-pill">检查环境…</span></h3>
+        <div id="train-sessions" class="note">点「刷新」加载会话(勾选要训练的，只用其中 ✓要 的 episode)。</div>
         <div class="row" style="margin-top:8px">
           <button class="btn" onclick="trainLoadSessions()">刷新会话</button>
           <label><input type="checkbox" id="train-sel-all" onchange="trainSelAll(this.checked)"> 全选</label>
         </div>
-        <div class="row" style="align-items:center;gap:16px;margin-top:10px">
+        <div class="row" style="align-items:center;gap:16px;margin-top:10px;flex-wrap:wrap">
           <label>图像：
             <select id="train-images">
               <option value="rgb">RGB(只彩色)</option>
@@ -585,26 +590,71 @@
             </select>
           </label>
           <label><input type="checkbox" id="train-touch"> 带触觉 touch</label>
-          <label>数据集名：<input type="text" id="train-repo" value="g1_pico_act/v1" style="width:170px"></label>
+          <label>模型名：<input type="text" id="train-repo" value="g1_pico_act/bottle_v2" style="width:180px"></label>
+          <label>步数：<input type="text" id="train-steps" value="100000" style="width:80px"></label>
         </div>
         <div class="row" style="margin-top:10px">
-          <button class="btn primary" id="train-convert" onclick="trainConvert()">① 转换数据集</button>
-          <span class="proc-pill" id="pill-convert_dataset">未运行</span>
-          <span class="hint">把勾选会话里 ✓要 的 episode 按区间裁剪 → LeRobot 数据集</span>
+          <button class="btn primary" id="train-enqueue" onclick="trainEnqueue()">＋ 加入训练队列</button>
+          <span class="hint">勾选会话里 ✓要 的 episode 按区间裁剪 → LeRobot 数据集 → 训练 ACT(全自动)</span>
         </div>
-        <pre class="logpane small collapsed" id="log-convert_dataset" onclick="this.classList.toggle('collapsed')"></pre>
       </div>
 
       <div class="card">
-        <h3>② 开始训练</h3>
-        <div class="row" style="align-items:center;gap:14px">
-          <label>训练步数 steps：<input type="text" id="train-steps" value="100000" style="width:90px"></label>
-          <button class="btn primary" id="train-start" onclick="trainStart()">② 开始训练 ACT</button>
-          <button class="btn" onclick="stopProc('act_train')">停止训练</button>
-          <span class="proc-pill" id="pill-act_train">未运行</span>
+        <h3>训练队列 <span class="hint">一次只跑一个(共享 GPU)，其余排队</span></h3>
+        <div id="train-queue" class="note">队列空。上面配置好点「加入训练队列」。</div>
+        <div class="row" style="margin-top:10px;gap:14px;align-items:center">
+          <span class="proc-pill" id="pill-convert_dataset">转换 未运行</span>
+          <span class="proc-pill" id="pill-act_train">训练 未运行</span>
+          <button class="btn" onclick="stopProc('act_train')">停止当前训练</button>
         </div>
-        <p class="note">RTX 5080 上 ACT ~10万步约几小时。训练在后台跑，可关页面；checkpoint 存 <code>training/</code>。下面看 loss/进度。</p>
+        <pre class="logpane small collapsed" id="log-convert_dataset" onclick="this.classList.toggle('collapsed')"></pre>
         <pre class="logpane collapsed" id="log-act_train" onclick="this.classList.toggle('collapsed')"></pre>
+      </div>
+
+      <div class="card">
+        <h3>已训练模型 <button class="btn" style="float:right" onclick="trainOverview()">刷新</button></h3>
+        <p class="note">每个模型显示配置、数据量、loss 曲线与 checkpoint。<strong>▶ 部署</strong> = 加载该模型实时推理 → 回灌 SONIC 驱动真机(先站稳，急停随时)。</p>
+        <div id="train-models" class="models-grid">加载中…</div>
+
+        <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:10px">
+          <p class="warn" style="margin:0 0 6px">▶ 部署 = 真机自主执行。先勾下面安全确认 + 输入「确认姿态」，再点某个模型卡的 <strong>▶ 部署</strong>（进 CONTROL，机器人 HOLD 住首个预测姿势站稳）；目视 OK 后点 <strong>② 执行</strong>。SONIC 始终平衡腿，随时可 ■ 停止 / 急停。</p>
+          <ul class="safety-list" style="list-style:none;padding:0;margin:6px 0">
+            <li><label><input type="checkbox" class="dep-ck" data-key="sim_rehearsed"> ① 流程已演练（含急停）</label></li>
+            <li><label><input type="checkbox" class="dep-ck" data-key="robot_secured"> ② 机器人已悬挂 / 空旷场地，当前姿态已目视确认</label></li>
+            <li><label><input type="checkbox" class="dep-ck" data-key="debug_mode"> ③ 已进调试模式（L2+R2），原生运控脱离</label></li>
+            <li><label><input type="checkbox" class="dep-ck" data-key="estop_person"> ④ 已指定急停员</label></li>
+          </ul>
+          <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="deploy-typed" placeholder="输入「确认姿态」" style="width:150px">
+            <button class="btn primary" onclick="inferPlay()">② 执行</button>
+            <button class="btn" onclick="inferCmd('pause')">⏸ 本轮保持</button>
+            <button class="btn" onclick="inferCmd('next')">⟲ 下一轮（回初始）</button>
+            <button class="btn" onclick="inferRefresh()">🔄 刷新frame1</button>
+            <button class="btn danger" onclick="inferStop()">■ 停止</button>
+            <span class="proc-pill" id="pill-act_infer">未运行</span>
+          </div>
+          <div class="row" style="gap:18px;align-items:center;flex-wrap:wrap;margin-top:8px">
+            <label>速度 <input type="range" id="infer-speed" min="0.25" max="1.5" step="0.05" value="1" style="width:120px;vertical-align:middle" oninput="inferSpeed(this.value)"> <span id="infer-speed-val" class="pill ok">1.00x</span></label>
+            <label><input type="checkbox" id="infer-loop" onchange="inferLoop(this.checked)"> 🔁 循环</label>
+            <label>单轮 <input type="number" id="infer-round" min="0" step="1" value="0" style="width:56px" onchange="inferRound(this.value)"> 秒 <span class="hint">(0=手动停)</span></label>
+            <label>手指松开延时 <input type="number" id="infer-release" min="0" step="0.5" value="2" style="width:52px" onchange="inferRelease(this.value)"> 秒</label>
+            <label>入场缓动 <input type="range" id="infer-rampin" min="0" max="4" step="0.1" value="1.5" style="width:110px;vertical-align:middle" oninput="inferRampIn(this.value)"> <span id="infer-rampin-val" class="pill ok">1.5s</span> <span class="hint">(进frame1柔顺;0=关)</span></label>
+          </div>
+          <div id="infer-cam-wrap" style="margin-top:10px;display:none">
+            <div class="hint">🤖 机器人视角（模型实时看到的画面） <span id="infer-cam-fps" class="pill"></span></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
+              <div style="flex:1;min-width:280px">
+                <div class="hint">RGB（彩色）</div>
+                <img id="infer-cam" alt="等待画面…" style="width:100%;background:#000;border-radius:6px;display:block">
+              </div>
+              <div id="infer-depth-wrap" style="flex:1;min-width:280px;display:none">
+                <div class="hint">Depth（深度，仅 RGBD 模型）</div>
+                <img id="infer-depth" alt="" style="width:100%;background:#000;border-radius:6px;display:block">
+              </div>
+            </div>
+          </div>
+          <pre class="logpane small collapsed" id="log-act_infer" onclick="this.classList.toggle('collapsed')"></pre>
+        </div>
       </div>
     </section>
   </main>
@@ -624,6 +674,7 @@
   <span id="conn-dot" title="与控制台连接状态">● 连接中…</span>
 </footer>
 
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

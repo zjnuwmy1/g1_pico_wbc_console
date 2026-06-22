@@ -1,0 +1,82 @@
+{
+  "exact": {
+    "GR00T-WholeBodyControl 仓库": "GR00T-WholeBodyControl repo",
+    "磁盘空间 ≥10GB": "Disk space ≥10GB",
+    "清理磁盘": "Free up disk",
+    "NVIDIA GPU / 驱动": "NVIDIA GPU / driver",
+    "nvidia-smi 失败": "nvidia-smi failed",
+    "检查 NVIDIA 驱动": "Check NVIDIA driver",
+    "全部就绪": "All ready",
+    "部署模型 (policy/planner/motion)": "Deploy models (policy/planner/motion)",
+    "C++ 部署二进制": "C++ deploy binary",
+    ".venv_teleop 环境": ".venv_teleop env",
+    "不存在": "not found",
+    "到步骤 2 点击安装（运行 install_pico.sh）": "Install at Step 2 (run install_pico.sh)",
+    "zmq/msgpack/torch 可用": "zmq/msgpack/torch available",
+    "到步骤 2 重新安装": "Reinstall at Step 2",
+    "venv 不存在": "venv not found",
+    "先完成 venv 安装": "Complete venv install first",
+    "可导入": "importable",
+    "XRoboToolkit PC Service 已安装": "XRoboToolkit PC Service installed",
+    "/opt/apps/roboticsservice 不存在": "/opt/apps/roboticsservice not found",
+    "到步骤 2 复制 sudo 安装命令": "Copy sudo install command at Step 2",
+    "PC Service 运行中": "PC Service running",
+    "到步骤 3 点击「启动 PC Service」": "Click 「Start PC Service」 at Step 3",
+    "机器人网(192.168.123.x): 无": "robot net(192.168.123.x): none",
+    "无": "none",
+    "网络接口": "Network interfaces",
+    "连接 WiFi（头显与工作站需同网段）": "Connect WiFi (headset and workstation must be on the same subnet)",
+    "ping 通": "ping ok",
+    "ping 不通": "ping failed",
+    "检查网线/机器人开机状态": "Check cable/robot power state",
+    "构建工具 (just/uv)": "Build tools (just/uv)",
+    "被占用（若遥操作已在跑则正常）": "in use (normal if teleop is already running)",
+    "空闲": "idle"
+  },
+  "frag": [
+    [
+      " GB 可用",
+      " GB available"
+    ],
+    [
+      "缺失: ",
+      "missing: "
+    ],
+    [
+      " LFS指针: ",
+      " LFS pointers: "
+    ],
+    [
+      " (首次会自动编译)",
+      " (auto-compiles on first run)"
+    ],
+    [
+      "机器人网: ",
+      "robot net: "
+    ],
+    [
+      " | 头显可连: ",
+      " | headset can reach: "
+    ],
+    [
+      "G1 PC2 可达 ",
+      "G1 PC2 reachable "
+    ],
+    [
+      "=缺 ",
+      "=missing "
+    ],
+    [
+      "=缺",
+      "=missing"
+    ],
+    [
+      "端口 ",
+      "Port "
+    ],
+    [
+      " 查看占用进程",
+      " to show the process using it"
+    ]
+  ]
+}

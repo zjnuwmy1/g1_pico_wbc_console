@@ -1,0 +1,535 @@
+{
+  "exact": {
+    "关闭": "Off",
+    "全身跟随": "Whole-body follow",
+    "行走规划": "Locomotion planning",
+    "上身冻结+行走": "Upper-body frozen + walk",
+    "暂停": "Paused",
+    "三点跟随(头+双手)": "3-point follow (head+hands)",
+    "待机": "Idle",
+    "慢走": "Slow walk",
+    "行走": "Walk",
+    "奔跑": "Run",
+    "下蹲": "Squat",
+    "双腿跪": "Kneel (both)",
+    "单腿跪": "Kneel (one)",
+    "俯卧": "Prone",
+    "爬行": "Crawl",
+    "拳击待机": "Box idle",
+    "拳击行走": "Box walk",
+    "左直拳": "L jab",
+    "右直拳": "R jab",
+    "左勾拳": "L hook",
+    "右勾拳": "R hook",
+    "组合拳A": "Combo A",
+    "组合拳B": "Combo B",
+    "前跳": "Hop",
+    "潜行": "Sneak",
+    "受伤行走": "Limp",
+    "网络/服务未响应（控制台可能已断开）：": "Network/service not responding (console may be disconnected): ",
+    "请先完成步骤5 的安全确认门（勾选清单 + 输入「确认姿态」）": "Complete the step 5 safety gate first (check the list + type \"CONFIRM\")",
+    "✗ 先完成上面的安全确认门（确认姿态）再点": "✗ Complete the safety gate above (confirm posture) before clicking",
+    "启动 deploy(real)…（首次建/载模型可能 ~30s）": "Starting deploy(real)… (first build/load may take ~30s)",
+    "检查手服务端健康…": "Checking hand server health…",
+    "手服务端不健康 → 已自动重启 ✓": "Hand server unhealthy → auto-restarted ✓",
+    "⚠ 手服务端重启后仍无数据，查 PC2/通电": "⚠ Hand server still has no data after restart, check PC2/power",
+    "启动 PICO streamer…": "Starting PICO streamer…",
+    "启动手桥…": "Starting hand bridge…",
+    "启动录制器…": "Starting recorder…",
+    "拿瓶子": "grab bottle",
+    "✓ 全链路已拉起 — 戴 PICO，去步骤7 看就绪灯，PICO动作转绿后 左Grip+A 录制": "✓ Full stack up — put on PICO, go to step 7 for the ready light; once PICO motion turns green, left Grip+A to record",
+    "默认": "default",
+    "停": "stop",
+    "启动策略 = 机器人开始被控制（Init Done 后会动）。确认场地清空、急停在手？": "Start policy = robot begins to be controlled (moves after Init Done). Area cleared, E-Stop in hand?",
+    "丢弃当前 episode？此条数据不保存。": "Discard current episode? This data will not be saved.",
+    "重启中…(~10s)": "Restarting… (~10s)",
+    "PC2 手服务端已重启": "PC2 hand server restarted",
+    "不松手": "never release",
+    "上半身锁定：手一直保持抓握": "Upper-body locked: hands hold grip indefinitely",
+    "（暂无录制）": "(no recordings)",
+    "SONIC deploy 已就绪（到 Init Done）—— 回放会自己进 CONTROL": "SONIC deploy ready (at Init Done) — playback enters CONTROL on its own",
+    "去步骤5起 deploy 到 Init Done（释放高层+调试模式）": "Go to step 5, bring deploy to Init Done (release high-level + debug mode)",
+    "5556 已空闲（PICO数据流 / 手动驾驶 已停）": "5556 free (PICO stream / manual drive stopped)",
+    "先停 pico_streamer / gui_drive": "Stop pico_streamer / gui_drive first",
+    "就绪": "ready",
+    "未就绪": "not ready",
+    "电机层面稍后实现，先用 PICO 层面": "Motor-level coming later, use PICO-level for now",
+    "先选一条 episode": "Select an episode first",
+    "① 起身站稳：\n这会【启动策略进 CONTROL】，机器人缓动到录制起始姿势并站稳。\n场地清空、急停在手？": "① Stand up steady:\nThis [starts the policy into CONTROL]; the robot eases to the recorded start pose and stands.\nArea cleared, E-Stop in hand?",
+    "起身中：正在让 deploy 进 CONTROL…": "Standing up: bringing deploy into CONTROL…",
+    "✅ deploy 已进 CONTROL，机器人已接管 —— 目视站稳后点 ②": "✅ deploy entered CONTROL, robot has taken over — once visually steady, click ②",
+    "⚠ 回放进程已退出，看 playback 日志": "⚠ Playback process exited, check playback log",
+    "⚠ deploy 10s 内没进 CONTROL！检查：① 机器人遥控器已 L2+R2 调试模式？② 看 playback 日志 start 是否发出。点 ■ 停止后重来": "⚠ deploy did not enter CONTROL within 10s! Check: ① robot controller in L2+R2 debug mode? ② check playback log whether start was sent. Click ■ to stop and retry",
+    "deploy 还没进 CONTROL —— 机器人没接管，现在回放无效。先点①等它接管（看到「✅已进CONTROL」）": "deploy hasn't entered CONTROL — robot hasn't taken over, playback now is ineffective. Click ① and wait for takeover (see \"✅ in CONTROL\")",
+    "② 开始回放：机器人将按录制轨迹前进。\n已目视确认站稳、急停在手？": "② Start playback: robot will advance along the recorded trajectory.\nVisually confirmed steady, E-Stop in hand?",
+    "开始前进回放": "Starting forward playback",
+    "回放已停止（机器人保持最后指令，必要时急停）": "Playback stopped (robot holds last command, E-Stop if needed)",
+    "停止失败：": "Stop failed: ",
+    "环境就绪": "Env ready",
+    "环境装中…(torch/lerobot)": "Env installing… (torch/lerobot)",
+    "暂无录制": "No recordings",
+    "先勾选要训练的会话(至少一个有 ✓要 的)": "Select sessions to train first (at least one with ✓keep)",
+    "先填模型名": "Enter a model name first",
+    "暂无 loss（训练启动后出现）": "No loss yet (appears after training starts)",
+    "还没有训练好的模型。上面新建一个训练。": "No trained models yet. Create a new training above.",
+    "失败": "Failed",
+    "✓ 完成": "✓ Done",
+    "最新(last)": "latest (last)",
+    "无": "none",
+    "队列空。": "Queue empty.",
+    "排队": "Queued",
+    "转换中": "Converting",
+    "训练中": "Training",
+    "环境装中…": "Env installing…",
+    "已移除": "Removed",
+    "起身中：让 deploy 进 CONTROL（策略服务器加载约几秒）…": "Standing up: bringing deploy into CONTROL (policy server loads in a few seconds)…",
+    "✅ deploy 已进 CONTROL，机器人 HOLD 住首个预测姿势 —— 目视站稳后点「② 执行」": "✅ deploy entered CONTROL, robot HOLDs the first predicted pose — once visually steady, click \"② Run\"",
+    "⚠ 推理进程已退出，看 act_infer 日志": "⚠ Inference process exited, check act_infer log",
+    "⚠ 20s 内没进 CONTROL —— 检查：① L2+R2 调试模式？② act_infer 日志（策略服务器/相机/DDS）": "⚠ Did not enter CONTROL within 20s — check: ① L2+R2 debug mode? ② act_infer log (policy server/camera/DDS)",
+    "deploy 还没进 CONTROL —— 先点某个模型的「▶ 部署」等它接管（看到「✅已进CONTROL」）": "deploy hasn't entered CONTROL — click a model's \"▶ Deploy\" and wait for takeover (see \"✅ in CONTROL\")",
+    "② 开始自主执行：机器人将由模型实时控制动作。\n已目视站稳、急停在手？": "② Start autonomous run: robot motion will be controlled live by the model.\nVisually confirmed steady, E-Stop in hand?",
+    "▶ 自主执行中": "▶ Running autonomously",
+    "已停止（机器人保持最后指令，必要时急停 o）": "Stopped (robot holds last command, E-Stop o if needed)",
+    "⏸ 本轮保持（手指延时后松开）": "⏸ Hold this round (fingers release after delay)",
+    "⟲ 回初始位 → 新一轮": "⟲ Back to start → new round",
+    "🔁 循环开（单轮到点自动回初始重来）": "🔁 Loop on (auto-return to start and repeat each round)",
+    "循环关": "Loop off",
+    "🔄 刷新frame1（重新预测初始姿势，平滑过渡）": "🔄 Refresh frame1 (re-predict start pose, smooth transition)",
+    "重启中…(~6s)": "Restarting… (~6s)",
+    "PC2 相机服务已重启，几秒后画面恢复": "PC2 camera service restarted, image resumes in a few seconds",
+    "自检手会驱动两只手运动约 12 秒（自动停手桥跑完再重起）。确认手周围无障碍、可以动？": "The hand self-test drives both hands for ~12 seconds (auto-stops the hand bridge, then restarts it). Confirm hands are clear and free to move?",
+    "自检中…（手会动，约 12s）": "Self-testing… (hands move, ~12s)",
+    "左手": "Left hand",
+    "右手": "Right hand",
+    "（无 state！）": "(no state!)",
+    "验证中…（读 rt/lowcmd vs rt/lowstate）": "Verifying… (reading rt/lowcmd vs rt/lowstate)",
+    "recordings/ 里还没有 episode。": "No episode in recordings/ yet.",
+    "删除失败：": "Delete failed: ",
+    "读取 data.json 失败": "Failed to read data.json",
+    "已有标注": "Annotated",
+    "未标注": "Not annotated",
+    "（无标注，全 stage 0）": "(no annotation, all stage 0)",
+    "未保存": "Unsaved",
+    "✗ 不要": "✗ Drop",
+    "未定": "Undecided",
+    "先「刷新列表」": "Click \"Refresh list\" first",
+    "标记：要": "Marked: keep",
+    "标记：不要": "Marked: drop",
+    "动作: (该帧无 pose)\n": "action: (no pose this frame)\n",
+    "导出中…": "Exporting…",
+    "正在编码 RGBD（RGB|彩色深度并排）…": "Encoding RGBD (RGB | colorized depth side-by-side)…",
+    "正在用 ffmpeg 编码 MP4…（按帧数,几秒）": "Encoding MP4 with ffmpeg… (a few seconds depending on frame count)",
+    "⬇ 导出": "⬇ Export",
+    "导出失败：": "Export failed: ",
+    "未知": "unknown",
+    "取消": "Cancel",
+    "确认": "Confirm",
+    "⚠ 释放高层模式 = 原生运控脱离，机器人会变软、靠吊架承重！\n\n确认：① 已停 deploy ② 吊架张紧 ③ 急停在手？": "⚠ Release high-level mode = native motion control disengages, robot goes limp and hangs on the gantry!\n\nConfirm: ① deploy stopped ② gantry tensioned ③ E-Stop in hand?",
+    "⏳ 执行中…（约 15s，正在与机器人 DDS 通信，请勿重复点击）": "⏳ Running… (~15s, communicating with robot DDS, do not click again)",
+    "执行中…": "Running…",
+    "已释放 (lowcmd 就绪)": "Released (lowcmd ready)",
+    "(无)": "(none)",
+    "■ 急停已发送…": "■ E-Stop sent…",
+    "急停指令可能未送达控制台！\n立即用手柄 A+B+X+Y，或在部署终端按 O 急停。\n": "E-Stop command may not have reached the console!\nUse the controller A+B+X+Y immediately, or press O in the deploy terminal to E-Stop.\n",
+    "(无动作)": "(no actions)",
+    "探测中…": "Probing…",
+    "安全确认失败": "Safety confirmation failed",
+    "未解锁": "Locked",
+    "已复制到剪贴板": "Copied to clipboard",
+    "复制失败，请手动选中复制": "Copy failed, please select and copy manually",
+    " ✓ PC Service 已安装": " ✓ PC Service installed",
+    " ✗ 尚未安装": " ✗ Not installed",
+    "未运行": "Idle",
+    "启动中…": "Starting…",
+    "运行中 ✓": "Running ✓",
+    "停止中…": "Stopping…",
+    "已退出": "Exited",
+    "异常退出": "Crashed",
+    "需人工处理!": "Needs manual action!",
+    "已停止": "Stopped",
+    "有线/机器人网": "wired/robot net",
+    "头显的 XRoboToolkit app 里填上面任意一个能和头显互通的 IP。走有线/USB 共享填有线 IP，走 WiFi 填 WiFi IP。": "In the headset's XRoboToolkit app, enter any IP above that the headset can reach. For wired/USB tethering use the wired IP; for WiFi use the WiFi IP.",
+    "未检测到任何局域网 IP": "No LAN IP detected",
+    "⚠ 工作站网络全部断开，请检查网线/WiFi。": "⚠ All workstation networks are down, check ethernet/WiFi.",
+    "头显链路": "Headset link",
+    "Tracker数据": "Tracker data",
+    "全身就绪": "Whole-body ready",
+    "全身数据正常 ✓": "Whole-body data OK ✓",
+    "✓ 已停止": "✓ Stopped",
+    "✗ 还在运行": "✗ Still running",
+    "✗ 离线": "✗ Offline",
+    "部署: ⚠ 需人工处理 — 勿 kill -9": "deploy: ⚠ Needs manual action — do not kill -9",
+    "部署: ⚠ 收不到机器人 LowState（查 已释放高层模式 / 调试模式 / 机器人网）": "deploy: ⚠ No robot LowState received (check high-level released / debug mode / robot net)",
+    "● 已连接": "● Connected",
+    "状态实时刷新中": "Status refreshing live",
+    "⚠ 连接断开": "⚠ Disconnected",
+    "无法连到控制台": "Cannot reach console",
+    "等画面…": "waiting for image…"
+  },
+  "frag": [
+    [
+      "前",
+      "fwd "
+    ],
+    [
+      " 移",
+      " strafe "
+    ],
+    [
+      " 转",
+      " turn "
+    ],
+    [
+      "上半身锁定 ",
+      "Upper-body locked "
+    ],
+    [
+      " 秒后松手",
+      "s then release"
+    ],
+    [
+      "帧 · ",
+      "frames · "
+    ],
+    [
+      "已入队：",
+      "Enqueued: "
+    ],
+    [
+      "会话, ",
+      " sessions, "
+    ],
+    [
+      "步)",
+      " steps)"
+    ],
+    [
+      "+触觉",
+      "+touch"
+    ],
+    [
+      "训练中 ",
+      "Training "
+    ],
+    [
+      " 段",
+      " episode(s)"
+    ],
+    [
+      " 帧",
+      " frame(s)"
+    ],
+    [
+      "动作 ",
+      "action "
+    ],
+    [
+      "d · 状态 ",
+      "d · state "
+    ],
+    [
+      "移除模型 ",
+      "Remove model "
+    ],
+    [
+      "？\n移到回收站 training/_trash/（可恢复；数据集和录制不动）。",
+      "?\nMoved to trash training/_trash/ (recoverable; dataset and recordings untouched)."
+    ],
+    [
+      "部署 ",
+      "Deploy "
+    ],
+    [
+      "）？\n这会【启动策略进 CONTROL】，由模型实时驱动机器人 —— 先 HOLD 站稳，再点「② 执行」。\n场地清空、急停在手？",
+      ")?\nThis [starts the policy into CONTROL]; the model drives the robot live — HOLD steady first, then click \"② Run\".\nArea cleared, E-Stop in hand?"
+    ],
+    [
+      " 秒",
+      "s"
+    ],
+    [
+      "删除 ",
+      "Delete "
+    ],
+    [
+      "？\n\n文件将从磁盘永久删除，不可恢复。",
+      "?\n\nFiles will be permanently deleted from disk, unrecoverable."
+    ],
+    [
+      "已删除 ",
+      "Deleted "
+    ],
+    [
+      "整个会话 ",
+      "entire session "
+    ],
+    [
+      " 条）",
+      " items)"
+    ],
+    [
+      "共 ",
+      "Total "
+    ],
+    [
+      " 会话 · ",
+      " sessions · "
+    ],
+    [
+      " 帧 · 占盘 ",
+      " frames · disk "
+    ],
+    [
+      "取舍(只是分类标签，不删文件)：",
+      "Curation (label only, no file deletion): "
+    ],
+    [
+      "✓要 ",
+      "✓keep "
+    ],
+    [
+      " · 未定 ",
+      " · undecided "
+    ],
+    [
+      " 条 episode（",
+      " episodes ("
+    ],
+    [
+      " 个会话）。",
+      " sessions)."
+    ],
+    [
+      "还剩 ",
+      "Remaining "
+    ],
+    [
+      " 条未标 / 共 ",
+      " unlabeled / of "
+    ],
+    [
+      " 条 · ",
+      " items · "
+    ],
+    [
+      " 帧 · ",
+      " frames · "
+    ],
+    [
+      "🗑 删会话",
+      "🗑 Delete session"
+    ],
+    [
+      " 段",
+      " stages"
+    ],
+    [
+      "未标",
+      "untagged"
+    ],
+    [
+      "✗不要",
+      "✗drop"
+    ],
+    [
+      "（",
+      " ("
+    ],
+    [
+      "帧）",
+      " frames)"
+    ],
+    [
+      "目标：",
+      "Goal: "
+    ],
+    [
+      " 帧 · 相机：",
+      " frames · cameras: "
+    ],
+    [
+      " · 触觉：",
+      " · touch: "
+    ],
+    [
+      " → 阶段",
+      " → stage "
+    ],
+    [
+      "已保存（",
+      "Saved ("
+    ],
+    [
+      " 边界 / ",
+      " boundaries / "
+    ],
+    [
+      " 帧）",
+      " frames)"
+    ],
+    [
+      "保存失败：",
+      "Save failed: "
+    ],
+    [
+      "全长（",
+      "full length ("
+    ],
+    [
+      "✓ 要 · ",
+      "✓ Keep · "
+    ],
+    [
+      "🎉 标完了！没有别的未标条目（共 ",
+      "🎉 All labeled! No more unlabeled items (of "
+    ],
+    [
+      " 条全有取舍）",
+      " all curated)"
+    ],
+    [
+      "帧 ",
+      "frame "
+    ],
+    [
+      "（stage ",
+      " (stage "
+    ],
+    [
+      " 图像缺失",
+      " image missing"
+    ],
+    [
+      "stage=",
+      "stage="
+    ],
+    [
+      "动作: L grip=",
+      "action: L grip="
+    ],
+    [
+      "触觉峰值 normal_force: 左=",
+      "touch peak normal_force: L="
+    ],
+    [
+      " 右=",
+      " R="
+    ],
+    [
+      "本体: ",
+      "state: "
+    ],
+    [
+      " 关节 q",
+      " joints q"
+    ],
+    [
+      " · 左手 ",
+      " · L hand "
+    ],
+    [
+      "已导出 ",
+      "Exported "
+    ],
+    [
+      "fps，开始下载",
+      "fps, starting download"
+    ],
+    [
+      "✓ 动",
+      "✓ moved"
+    ],
+    [
+      "✗ 没动",
+      "✗ no move"
+    ],
+    [
+      "ℹ 检测到收不到手数据 → 已自动重启 PC2 手服务端后重试\n\n",
+      "ℹ No hand data detected → auto-restarted PC2 hand server and retried\n\n"
+    ],
+    [
+      "\n\n关节        cmd_q   actual    kp    diff\n",
+      "\n\njoint       cmd_q   actual    kp    diff\n"
+    ],
+    [
+      "已解锁 · 剩余 ",
+      "Armed · "
+    ],
+    [
+      "s（单次）",
+      "s remaining (single use)"
+    ],
+    [
+      "启动中… ",
+      "Starting… "
+    ],
+    [
+      "（较久·查日志）",
+      " (taking long·check log)"
+    ],
+    [
+      "遥操模式: ",
+      "Teleop mode: "
+    ],
+    [
+      "步态: ",
+      "gait: "
+    ],
+    [
+      "部署: ",
+      "deploy: "
+    ],
+    [
+      "就绪(待 start)",
+      "ready (awaiting start)"
+    ],
+    [
+      "初始化…",
+      "initializing…"
+    ],
+    [
+      "POSE→录",
+      "POSE→rec"
+    ],
+    [
+      "等POSE",
+      "await POSE"
+    ],
+    [
+      "录制中 ep=",
+      "recording ep="
+    ],
+    [
+      " 帧=",
+      " frames="
+    ],
+    [
+      "未录",
+      "not recording"
+    ],
+    [
+      "■ 停止保存（空格）",
+      "■ Stop & save (space)"
+    ],
+    [
+      "● 开始这条（空格）",
+      "● Start this one (space)"
+    ],
+    [
+      "⚠相机冻帧",
+      "⚠cam frozen"
+    ],
+    [
+      "相机",
+      "camera"
+    ],
+    [
+      "⚠ 状态 ",
+      "⚠ status "
+    ],
+    [
+      "s 未更新",
+      "s stale"
+    ]
+  ]
+}

@@ -25,7 +25,140 @@ import checks
 import config
 from procman import ProcessManager
 
+sys.path.insert(0, str(config.CONSOLE_ROOT / "helpers"))
+import train_report  # noqa: E402  (stdlib-only model scanner / loss parser)
+
 PM = ProcessManager()
+
+
+# ── ACT training queue ───────────────────────────────────────────────────────
+# Lets the user enqueue several configs (rgb/rgbd × touch/no-touch) and walk
+# away. One GPU -> jobs run FIFO, sequentially: convert_dataset -> act_train ->
+# next. Each model's config/episodes/loss are then viewable in step 10.
+class TrainQueue:
+    def __init__(self) -> None:
+        self._jobs: list[dict] = []
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._worker_started = False
+        self._seq = 0
+
+    def enqueue(self, repo_id: str, sessions, images: str, touch: int, steps: int) -> dict:
+        with self._lock:
+            self._seq += 1
+            job = {"id": self._seq, "repo_id": repo_id, "sessions": sessions,
+                   "images": images, "touch": int(touch), "steps": int(steps),
+                   "status": "queued", "error": None, "enqueued_at": time.time()}
+            self._jobs.append(job)
+            if not self._worker_started:
+                self._worker_started = True
+                threading.Thread(target=self._run, daemon=True).start()
+        self._wake.set()
+        return dict(job)
+
+    def jobs(self) -> list[dict]:
+        with self._lock:
+            return [dict(j) for j in self._jobs]
+
+    def _next(self) -> dict | None:
+        with self._lock:
+            return next((j for j in self._jobs if j["status"] == "queued"), None)
+
+    def _run(self) -> None:
+        while True:
+            job = self._next()
+            if job is None:
+                self._wake.wait(timeout=30)
+                self._wake.clear()
+                continue
+            try:
+                self._run_job(job)
+            except Exception as e:               # never let the worker die
+                job["status"], job["error"] = "failed", f"queue error: {e}"
+
+    def _wait_proc(self, name: str) -> bool:
+        """Block until proc `name` exits; True iff exit code 0."""
+        while True:
+            time.sleep(2.0)
+            p = PM.get(name)
+            if p is None:
+                return False
+            if not p.alive():
+                time.sleep(0.5)  # let the reader thread record returncode
+                rc = p.returncode if p.returncode is not None else (
+                    p.popen.poll() if p.popen else 1)
+                return rc == 0
+
+    def _stamp_meta(self, job: dict, outdir: Path, log_path: str | None) -> None:
+        # lerobot creates outdir only at the first checkpoint (~15 min) — poll
+        # until it appears (or the job ends), then stamp the card metadata so the
+        # finished model keeps its sessions/config/log pointer.
+        for _ in range(3600):
+            if outdir.is_dir() or job["status"] in ("done", "failed"):
+                break
+            time.sleep(1.0)
+        train_report.write_meta(
+            outdir, repo_id=job["repo_id"], sessions=job["sessions"],
+            images=job["images"], touch=job["touch"], steps=job["steps"],
+            log_path=log_path, started_at=job["enqueued_at"],
+            status=("done" if job["status"] == "done" else "training"))
+
+    def _run_job(self, job: dict) -> None:
+        repo = job["repo_id"]
+        outdir = config.TRAINING_DIR / repo.replace("/", "_")
+        sess = job["sessions"]
+        sess_arg = ",".join(sess) if isinstance(sess, list) else str(sess)
+        # 1) convert curated recordings -> LeRobot dataset
+        job["status"] = "converting"
+        PM.prepare_train(repo_id=repo, sessions=sess_arg, images=job["images"],
+                         touch=job["touch"], steps=job["steps"])
+        r = PM.start("convert_dataset")
+        if not r.get("ok"):
+            job["status"], job["error"] = "failed", r.get("error") or "convert 启动失败"
+            return
+        if not self._wait_proc("convert_dataset"):
+            job["status"], job["error"] = "failed", "数据转换失败（看 convert 日志）"
+            return
+        # 2) train (clear any stale outdir so lerobot starts fresh), with
+        # auto-resume: a DataLoader-worker crash (e.g. torchcodec SIGILL) is
+        # retried from checkpoints/last so hours of training aren't lost.
+        if outdir.exists():
+            shutil.rmtree(outdir, ignore_errors=True)
+        job["status"] = "training"
+        meta_started = False
+        for attempt in range(1, 9):
+            resume = (outdir / "checkpoints" / "last").exists()
+            PM.prepare_train(repo_id=repo, sessions=sess_arg, images=job["images"],
+                             touch=job["touch"], steps=job["steps"], resume=resume)
+            r = PM.start("act_train")
+            if not r.get("ok"):
+                job["status"], job["error"] = "failed", r.get("error") or "训练启动失败"
+                return
+            p = PM.get("act_train")
+            job["log_path"] = str(p.logfile) if p else None
+            if not meta_started:
+                threading.Thread(target=self._stamp_meta,
+                                 args=(job, outdir, job["log_path"]), daemon=True).start()
+                meta_started = True
+            t0 = time.time()
+            if self._wait_proc("act_train"):
+                job["status"], job["error"] = "done", None
+                train_report.write_meta(outdir, status="done")
+                return
+            # crashed: resume from last checkpoint if we have one AND it ran long
+            # enough to be a runtime crash (not an instant cmd/config error)
+            if (outdir / "checkpoints" / "last").exists() and (time.time() - t0) > 60:
+                job["error"] = f"worker 崩溃，第 {attempt} 次自动续训…"
+                continue
+            job["status"], job["error"] = "failed", "训练异常退出（看 act_train 日志）"
+            train_report.write_meta(outdir, status="failed")
+            return
+        job["status"], job["error"] = "failed", "多次崩溃，已达自动续训上限(8)"
+        train_report.write_meta(outdir, status="failed")
+
+
+TQ = TrainQueue()
+
 
 # ── wizard step persistence ──────────────────────────────────────────────────
 _state_lock = threading.Lock()
@@ -591,6 +724,131 @@ def run_train_start(body) -> dict:
     return PM.start("act_train")
 
 
+def run_train_enqueue(body) -> dict:
+    """Queue an ACT training job (convert -> train, runs after any in-flight job).
+    Several configs can be queued so the user kicks off rgb/rgbd/touch variants
+    and walks away (one GPU -> sequential)."""
+    if not _act_env_ready():
+        return {"ok": False, "error": "act_train 环境还没装好（torch/lerobot 仍在后台装）"}
+    repo_id = (body.get("repo_id") or "").strip()
+    if not repo_id:
+        return {"ok": False, "error": "请填模型名（repo_id）"}
+    if "/" not in repo_id:
+        repo_id = "g1_pico_act/" + repo_id
+    sessions = body.get("sessions") or "all"
+    if isinstance(sessions, list):
+        sessions = [s for s in sessions if s] or "all"
+    images = body.get("images") if body.get("images") in ("rgb", "rgbd") else "rgb"
+    touch = 1 if body.get("touch") else 0
+    try:
+        steps = max(1000, int(body.get("steps", 100000)))
+    except (TypeError, ValueError):
+        steps = 100000
+    # reject a duplicate that's already queued/running (a finished one may be re-trained)
+    for j in TQ.jobs():
+        if j["repo_id"] == repo_id and j["status"] in ("queued", "converting", "training"):
+            return {"ok": False, "error": f"{repo_id} 已在队列/训练中"}
+    job = TQ.enqueue(repo_id, sessions, images, touch, steps)
+    return {"ok": True, "job": job}
+
+
+def _active_training_dirs() -> set:
+    """Output-dir names of models with a LIVE lerobot_train process — covers both
+    the queue and the standalone recovery script — so the overview marks them
+    'training' (and their card shows the live curve) even if a stale checkpoint
+    would otherwise read 'done'."""
+    dirs: set = set()
+    try:
+        out = subprocess.run(["pgrep", "-af", "lerobot_train"],
+                             capture_output=True, text=True, timeout=3).stdout
+    except Exception:
+        return dirs
+    for line in out.splitlines():
+        for tok in line.split():
+            if "training/" in tok:
+                seg = tok.split("training/", 1)[1].split("/", 1)[0].strip()
+                if seg:
+                    dirs.add(seg)
+    return dirs
+
+
+def api_train_overview() -> dict:
+    """Everything step 10 needs in one poll: env readiness, the job queue, and
+    every trained model's card (config + episodes + loss curve + checkpoints).
+
+    The CURRENTLY-training model's curve is overlaid straight from its live
+    training log so it shows from step ~200 (lerobot only creates the output dir
+    — hence a scannable card — at the first checkpoint ~step 20k), and its status
+    stays 'training' even after 'checkpoints/last' appears mid-run."""
+    models = train_report.list_models(config.TRAINING_DIR)
+    by_repo = {m["repo_id"]: m for m in models}
+    jobs = TQ.jobs()
+    for j in jobs:
+        if j["status"] != "training":
+            continue
+        live = train_report.parse_loss(Path(j["log_path"])) if j.get("log_path") else []
+        if j["repo_id"] in by_repo:
+            m = by_repo[j["repo_id"]]
+            m["status"] = "training"
+            if live:
+                m["loss"], m["last_step"], m["final_loss"] = live, live[-1]["step"], live[-1]["loss"]
+        else:
+            by_repo[j["repo_id"]] = train_report.live_card(j, live)
+    out = sorted(by_repo.values(), key=lambda m: (m.get("started_at") or 0), reverse=True)
+    active = _active_training_dirs()       # live lerobot_train procs (queue OR recovery)
+    for m in out:
+        if m["dir"] in active:
+            m["status"] = "training"
+    return {"ok": True, "env_ready": _act_env_ready(), "queue": jobs, "models": out}
+
+
+def run_train_delete_model(body) -> dict:
+    """Delete a trained model dir (training/<dir>). Refuses if that model is
+    currently training. Datasets / recordings are untouched."""
+    dirname = (body.get("dir") or "").strip().strip("/")
+    if not dirname or "/" in dirname or ".." in dirname:
+        return {"ok": False, "error": "bad dir"}
+    target = (config.TRAINING_DIR / dirname).resolve()
+    if not str(target).startswith(str(config.TRAINING_DIR.resolve())) or not target.is_dir():
+        return {"ok": False, "error": "目录不存在"}
+    for j in TQ.jobs():
+        if j["repo_id"].replace("/", "_") == dirname and j["status"] in ("converting", "training"):
+            return {"ok": False, "error": "该模型正在训练，先停止训练再删"}
+    # MOVE to _trash (recoverable) instead of permanent rmtree — accidental 🗑
+    # clicks shouldn't destroy hours of training. list_models skips _trash.
+    trash = config.TRAINING_DIR / "_trash"
+    trash.mkdir(parents=True, exist_ok=True)
+    dest = trash / f"{dirname}__{int(time.time())}"
+    try:
+        target.rename(dest)
+        return {"ok": True, "note": f"已移到回收站 _trash/{dest.name}（可恢复）"}
+    except OSError:
+        shutil.rmtree(target, ignore_errors=True)   # cross-device fallback
+        return {"ok": True, "note": "已删除"}
+
+
+def run_infer_start(body) -> dict:
+    """Start ACT autonomous execution (act_infer proc): the trained policy drives
+    the real G1 through the running SONIC deploy. Caller must have consumed the
+    safety token. Validates the checkpoint exists + deploy is at least Init Done."""
+    dirname = (body.get("dir") or "").strip().strip("/")
+    ckname = (body.get("checkpoint") or "last").strip().strip("/")
+    if not dirname or "/" in dirname or ".." in dirname or "/" in ckname or ".." in ckname:
+        return {"ok": False, "error": "bad model/checkpoint"}
+    pm = (config.TRAINING_DIR / dirname / "checkpoints" / ckname / "pretrained_model").resolve()
+    if not str(pm).startswith(str(config.TRAINING_DIR.resolve())) or not (pm / "config.json").is_file():
+        return {"ok": False, "error": "checkpoint 不存在（pretrained_model/config.json 缺失）"}
+    if not config.ACT_TRAIN_VENV_PY.is_file():
+        return {"ok": False, "error": "act_train 环境缺失（无法起策略服务器）"}
+    ts = teleop_state()
+    if not (ts.get("deploy_ready") or ts.get("deploy_control")):
+        return {"ok": False, "error": "SONIC deploy 未就绪（未到 Init Done）—— 先在步骤5起 deploy"}
+    robot = checks.find_real_robot_interface()
+    iface = robot[0] if robot else "enp132s0"
+    PM.prepare_infer(str(pm), iface)
+    return PM.start("act_infer")
+
+
 def apply_annotation(rel_path: str, boundaries: list) -> dict:
     """Write stage labels into an episode's data.json (offline annotation). Each
     boundary {frame, stage, label} sets the stage from that frame index onward
@@ -745,6 +1003,26 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     # ── routes ───────────────────────────────────────────────────────────────
+    def _serve_infer_frame(self, fname="infer_cam.jpg"):
+        """Serve the latest head-camera frame act_infer mirrored (image/jpeg), or
+        404 when there's no fresh frame (inference not running / camera down).
+        fname=infer_depth.jpg serves the colorized depth view (RGBD models)."""
+        p = config.CONSOLE_ROOT / "state" / fname
+        try:
+            if not (p.is_file() and (time.time() - p.stat().st_mtime) < 3.0):
+                self.send_response(404)
+                self.end_headers()
+                return
+            data = p.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except (OSError, BrokenPipeError, ConnectionResetError):
+            pass
+
     def do_GET(self):
         u = urlparse(self.path)
         if u.path == "/api/state":
@@ -755,6 +1033,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, get_frozen_release())
         elif u.path == "/api/train/status":
             self._json(200, {"ok": True, "env_ready": _act_env_ready()})
+        elif u.path == "/api/train/overview":
+            self._json(200, api_train_overview())
+        elif u.path == "/api/infer/frame":
+            self._serve_infer_frame()
+        elif u.path == "/api/infer/depth_frame":
+            self._serve_infer_frame("infer_depth.jpg")
         elif u.path.startswith("/recordings/"):
             self._serve_recording(u.path)
         elif u.path.startswith("/api/logs/"):
@@ -807,6 +1091,31 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/train/start":
             self._json(200, run_train_start(body))
+            return
+        if u.path == "/api/train/enqueue":
+            self._json(200, run_train_enqueue(body))
+            return
+        if u.path == "/api/train/delete_model":
+            self._json(200, run_train_delete_model(body))
+            return
+        if u.path == "/api/infer/start":
+            err = consume_safety_token(body.get("safety_token"))
+            if err:
+                self._json(403, {"ok": False, "error": err})
+                return
+            self._json(200, run_infer_start(body))
+            return
+        if u.path == "/api/infer/play":
+            self._json(200, PM.write_stdin("act_infer", (json.dumps({"cmd": "play"}) + "\n").encode()))
+            return
+        if u.path == "/api/infer/pause":
+            self._json(200, PM.write_stdin("act_infer", (json.dumps({"cmd": "pause"}) + "\n").encode()))
+            return
+        if u.path == "/api/infer/ctl":
+            # live test controls -> act_infer stdin (speed/loop/round/release/ramp/cmd)
+            allowed = ("cmd", "speed", "loop", "round_s", "release_s", "ramp_in_s")
+            intent = {k: body[k] for k in allowed if k in body}
+            self._json(200, PM.write_stdin("act_infer", (json.dumps(intent) + "\n").encode()))
             return
         if u.path == "/api/recordings/curate":
             self._json(200, curate_recording(body))

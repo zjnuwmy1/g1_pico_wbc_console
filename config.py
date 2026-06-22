@@ -62,6 +62,14 @@ ACT_TRAIN_VENV_PY = Path.home() / "miniconda3" / "envs" / "act_train" / "bin" / 
 BUILD_DATASET_PY = CONSOLE_ROOT / "helpers" / "build_act_dataset.py"
 TRAINING_DIR = CONSOLE_ROOT / "training"   # ACT checkpoints / outputs
 
+# ACT inference -> SONIC deploy (trained-policy counterpart of playback). act_infer.py
+# (teleop venv: owns DDS + camera) spawns act_policy_server.py (act_train env:
+# torch+lerobot) and republishes predicted PICO commands on 5556. Binds ZMQ 5556 ->
+# mutually exclusive with pico_streamer / gui_drive / playback. Drives the REAL
+# robot -> safety-gated.
+ACT_INFER_PY = CONSOLE_ROOT / "helpers" / "act_infer.py"
+ACT_POLICY_SERVER_PY = CONSOLE_ROOT / "helpers" / "act_policy_server.py"
+
 STATE_FILE = CONSOLE_ROOT / "state" / "state.json"
 LOGS_DIR = CONSOLE_ROOT / "logs"
 STATIC_DIR = CONSOLE_ROOT / "static"

@@ -12,3 +12,5 @@ __pycache__/
 # absolute paths). Regenerate with: python overlay/build_revo2_model.py
 overlay/g1_revo2/
 recordings/
+# trained model checkpoints + datasets (huge binaries, regenerate via step 10)
+training/

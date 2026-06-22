@@ -1,0 +1,84 @@
+{
+  "exact": {
+    "convert 启动失败": "convert failed to start",
+    "数据转换失败（看 convert 日志）": "data convert failed (see convert log)",
+    "训练启动失败": "training failed to start",
+    "worker 崩溃，第 {attempt} 次自动续训…": "worker crashed, auto-resume attempt {attempt}…",
+    "训练异常退出（看 act_train 日志）": "training exited abnormally (see act_train log)",
+    "多次崩溃，已达自动续训上限(8)": "crashed too many times, hit auto-resume limit (8)",
+    "checklist 未全部确认: {missing}": "checklist not fully confirmed: {missing}",
+    "请输入「确认姿态」以确认机器人当前姿态安全": "type \"CONFIRM\" to confirm the robot's current posture is safe",
+    "sim 进程仍在运行，先全部停止": "sim processes still running, stop all of them first",
+    "未检测到 192.168.123.x 机器人网卡": "no 192.168.123.x robot NIC detected",
+    "缺少或错误的 safety_token —— 请先完成安全确认": "missing or wrong safety_token — complete the safety confirmation first",
+    "safety_token 已过期（120s），请重新确认": "safety_token expired (120s), please confirm again",
+    ".venv_teleop 不存在，先完成步骤 2": ".venv_teleop not found, complete step 2 first",
+    "探测已在进行中": "probe already running",
+    "探测超时（25s）": "probe timed out (25s)",
+    "探测已启动，结果在 /api/state 的 pico 字段": "probe started, result is in the pico field of /api/state",
+    ".venv_teleop 不存在": ".venv_teleop not found",
+    "请先停止 deploy 再操作模式 —— deploy 占满机器人 DDS 域会让模式 RPC 卡死超时(实测 30s)。正确顺序:停 deploy → 释放/切换模式 → 再起 deploy。": "stop deploy before operating mode — deploy saturates the robot DDS domain and makes the mode RPC hang/timeout (measured 30s). Correct order: stop deploy → release/switch mode → restart deploy.",
+    "未检测到机器人网接口(192.168.123.x)，检查机器人网/上电": "robot NIC (192.168.123.x) not detected, check robot network/power",
+    "未执行": "not executed",
+    "G1 模式操作超时(30s)，机器人主控在跑吗?": "G1 mode operation timed out (30s), is the robot main controller running?",
+    "未检测到机器人网接口(192.168.123.x)": "robot NIC (192.168.123.x) not detected",
+    "验证超时(20s)": "verify timed out (20s)",
+    "自检超时(45s)": "self-test timed out (45s)",
+    "deploy(real) 在跑 —— 自检手会停手桥+驱动手+起 DDS 探针，可能让 deploy 丢 lowstate 安全停。请在起 deploy 前自检，或先停 deploy。": "deploy(real) is running — the hand self-test stops the hand bridge + drives the hands + starts a DDS probe, which may make deploy lose lowstate and safety-stop. Self-test before starting deploy, or stop deploy first.",
+    "ssh PC2 超时（PC2 在线吗？）": "ssh PC2 timed out (is PC2 online?)",
+    "episode 不存在": "episode not found",
+    "SONIC deploy 未就绪（未到 Init Done）—— 先在步骤5起 deploy 到 Init Done": "SONIC deploy not ready (not at Init Done) — start deploy to Init Done in step 5 first",
+    "拒绝删除 recordings 根目录": "refusing to delete the recordings root directory",
+    "目录不存在": "directory not found",
+    "act_train 环境还没装好(torch/lerobot 仍在后台装)": "act_train environment not ready yet (torch/lerobot still installing in the background)",
+    "act_train 环境还没装好": "act_train environment not ready yet",
+    "act_train 环境还没装好（torch/lerobot 仍在后台装）": "act_train environment not ready yet (torch/lerobot still installing in the background)",
+    "请填模型名（repo_id）": "fill in the model name (repo_id)",
+    "{repo_id} 已在队列/训练中": "{repo_id} already in queue/training",
+    "该模型正在训练，先停止训练再删": "this model is training, stop training before deleting",
+    "已移到回收站 _trash/{dest.name}（可恢复）": "moved to trash _trash/{dest.name} (recoverable)",
+    "已删除": "deleted",
+    "checkpoint 不存在（pretrained_model/config.json 缺失）": "checkpoint not found (pretrained_model/config.json missing)",
+    "act_train 环境缺失（无法起策略服务器）": "act_train environment missing (cannot start policy server)",
+    "SONIC deploy 未就绪（未到 Init Done）—— 先在步骤5起 deploy": "SONIC deploy not ready (not at Init Done) — start deploy in step 5 first",
+    "data.json 不存在": "data.json not found",
+    "该 episode 没有 head 帧可导出": "this episode has no head frames to export",
+    "该 episode 没有深度帧（无法导 RGBD）": "this episode has no depth frames (cannot export RGBD)",
+    "ffmpeg 未安装（apt install ffmpeg）": "ffmpeg not installed (apt install ffmpeg)",
+    "ffmpeg 编码超时": "ffmpeg encoding timed out",
+    "ffmpeg 失败：{stderr}": "ffmpeg failed: {stderr}",
+    "release 需要 confirm（机器人会变软，确认吊架）": "release requires confirm (robot will go limp, confirm the gantry)",
+    "先停掉 deploy 再释放模式（避免机器人猛跳）": "stop deploy before releasing mode (avoid the robot jolting)",
+    "步骤5不可标记完成（每次都需安全确认）": "step 5 cannot be marked complete (each time requires a safety confirmation)"
+  },
+  "frag": [
+    [
+      "worker 崩溃，第 ",
+      "worker crashed, auto-resume attempt "
+    ],
+    [
+      " 次自动续训…",
+      "th auto-resume…"
+    ],
+    [
+      "checklist 未全部确认: ",
+      "checklist not fully confirmed: "
+    ],
+    [
+      "已在队列/训练中",
+      " already in queue/training"
+    ],
+    [
+      "已移到回收站 _trash/",
+      "moved to trash _trash/"
+    ],
+    [
+      "（可恢复）",
+      " (recoverable)"
+    ],
+    [
+      "ffmpeg 失败：",
+      "ffmpeg failed: "
+    ]
+  ]
+}

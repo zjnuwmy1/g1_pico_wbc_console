@@ -9,13 +9,13 @@ full PICO command (incl. waist via SMPL), and the OBSERVATION is the head camera
 Reads only KEPT episodes (curation.json keep==true) and TRIMS each to its useful
 [start,end] frame range, across one or more sessions.
 
-  observation.state : joint_q[29] (incl. waist 12-14) + left_hand_q[6] +
-                      right_hand_q[6]  (+ tactile normal_force L/R if --touch)
+  observation.state : joint_q[29] + right_hand_q[6]  (+ tactile if --touch)  = 35
+                      (drops dead left_hand_q — right-handed teleop)
   observation.images.cam_high       : head RGB  (480x640x3)
   observation.images.cam_high_depth : head depth as uint8 grayscale (if --images rgbd)
-  action            : vr_position[9] + vr_orientation[12] + smpl_joints_latest[72]
-                      + body_quat_w_latest[4] + heading_increment[1]
-                      + left/right grip + left/right trigger [4]   = 102
+  action (v2)       : smpl_joints_latest[72] + wrist_joint_pos[6] +
+                      body_quat_w_latest[4] + grips[4]              = 86
+                      (only what SONIC encoder mode 2 tracks; +wrist for grasp)
 
 Run with the act_train env python (has lerobot + torch+cu128).
 Usage:
@@ -33,9 +33,12 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 REC_DIR = os.path.join(HERE, "..", "recordings")
 
-# action layout (Option-A PICO command -> SONIC deploy)
-SMPL_PER_FRAME = 72   # 24 SMPL joints x 3
+# action layout v2 (only what the deploy's SMPL encoder mode 2 actually tracks)
+SMPL_PER_FRAME = 72   # 24 SMPL joints x 3 (root-relative POSITIONS -> reach)
 BODYQ = 4
+# G1 29-dof mujoco order: L/R wrist roll/pitch/yaw. mode 2 reads joint_pos at
+# THESE indices for grasp orientation (which smpl_joints positions don't encode).
+WRIST_IDX = [19, 20, 21, 26, 27, 28]
 
 
 def _flat(v):
@@ -49,14 +52,18 @@ def _latest(buf, per):
 
 
 def _action_vec(a):
-    """102-d PICO command from one frame's recorded `action`."""
-    g = lambda k, n: _flat(a.get(k) if a.get(k) is not None else [0.0] * n)[:n]
+    """86-d action (v2): exactly what the deploy's SMPL encoder (mode 2) tracks.
+      smpl_joints(72)  root-relative joint POSITIONS  -> arm/body REACH
+      wrist_jp(6)      joint_pos at WRIST_IDX          -> wrist/grasp ORIENTATION
+      body_quat(4)     -> smpl_anchor orientation
+      grips(4)         L/R grip + L/R trigger
+    Drops vr_3point(21) (ignored by mode 2) + heading(1, always 0)."""
+    jp = _latest(a.get("joint_pos") or [0.0] * 29, 29)
+    wrist = jp[WRIST_IDX] if jp.size >= 29 else np.zeros(6, np.float32)
     parts = [
-        g("vr_position", 9),
-        g("vr_orientation", 12),
         _latest(a.get("smpl_joints") or [0.0] * SMPL_PER_FRAME, SMPL_PER_FRAME),
+        wrist.astype(np.float32),
         _latest(a.get("body_quat_w") or [1, 0, 0, 0], BODYQ),
-        np.array([float(a.get("heading_increment") or 0.0)], np.float32),
         np.array([float(a.get("left_grip") or 0.0), float(a.get("right_grip") or 0.0),
                   float(a.get("left_trigger") or 0.0), float(a.get("right_trigger") or 0.0)], np.float32),
     ]
@@ -64,8 +71,9 @@ def _action_vec(a):
 
 
 def _state_vec(st, touch):
+    """v2 state: joint_q[29] + right_hand_q[6] (+touch). Drops the dead left_hand_q
+    (right-handed teleop -> its std≈0 dims blew up normalization at deploy)."""
     parts = [_flat(st.get("joint_q") or [])[:29],
-             _flat(st.get("left_hand_q") or [])[:6],
              _flat(st.get("right_hand_q") or [])[:6]]
     if touch is not None:
         parts.append(touch)
@@ -73,14 +81,10 @@ def _state_vec(st, touch):
 
 
 def _touch_vec(frame):
-    """Per-hand normal_force (contact signal) when --touch; zeros if absent."""
-    tac = frame.get("tactile") or {}
-    out = []
-    for side in ("left", "right"):
-        nf = (tac.get(side) or {}).get("normal_force") or []
-        out.append(_flat(nf))
-    n = max(1, max(x.size for x in out))
-    return np.concatenate([np.pad(x, (0, n - x.size)) for x in out]).astype(np.float32)
+    """RIGHT-hand fingertip normal_force only (v2). Right-handed teleop -> the left
+    touch is dead (std≈0), the same dead-dim normalization bomb as left_hand_q."""
+    nf = ((frame.get("tactile") or {}).get("right") or {}).get("normal_force") or []
+    return _flat(nf).astype(np.float32) if len(nf) else np.zeros(1, np.float32)
 
 
 def _depth_to_u8(png_bytes):

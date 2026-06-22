@@ -22,6 +22,7 @@ Usage:  gui_drive.py
 """
 import json
 import math
+import os
 import sys
 import threading
 import time
@@ -37,6 +38,25 @@ RATE_HZ = 20.0
 YAW_GAIN = 1.5            # rad/s at full turn
 DEADZONE = 0.05
 IDLE = 0                 # LocomotionMode.IDLE
+
+# ── safe posture ladder (real-robot safety) ──────────────────────────────────
+# SONIC needs a PREPARATORY descent before prone/crawl — jumping straight from
+# standing to crawl can slam/damage the robot. The official PICO flow steps modes
+# one-by-one (A+B = mode+1) which naturally walks this descent. Manual drive used
+# to set the target mode DIRECTLY (a dangerous jump); now it STEPS through the
+# ladder, dwelling at each posture so the policy lands it before descending the
+# next. Rising reverses it. Movement + turning are LOCKED while transitioning.
+# Ladder + dwell operator-confirmed 2026-06-19: 站→蹲→跪(两腿)→趴→爬→肘爬, 4–5 s/step.
+POSTURE_LADDER = [0, 4, 5, 7, 8, 14]   # Idle/Stand, Squat, KneelTwoLegs, Lying, Crawl, ElbowCrawl
+LADDER_NAMES = {0: "站Idle", 4: "蹲Squat", 5: "跪Kneel2", 7: "趴Lying", 8: "爬Crawl", 14: "肘爬Elbow"}
+MARK_NAMES = {0: "Idle", 1: "SlowWalk", 2: "Walk", 3: "Run", 4: "Squat",
+              5: "Kneel", 7: "Lying", 8: "Crawling", 14: "ElbowCrawling"}
+DWELL_S = float(os.environ.get("DRIVE_POSTURE_DWELL_S", "4.5"))   # dwell per ladder step
+MOVING_MODES = {1, 2, 3, 8, 14}        # can take movement; postures (4/5/7) are static
+
+
+def _ladder_level(mode):
+    return POSTURE_LADDER.index(mode) if mode in POSTURE_LADDER else 0
 
 _intent = {"gait": 2, "fwd": 0.0, "strafe": 0.0, "turn": 0.0, "speed": -1.0}
 _policy_cmd = {"v": None}   # one-shot "start"/"stop"
@@ -75,6 +95,9 @@ def main():
     dt = 1.0 / RATE_HZ
     yaw = 0.0
     dbg = 0
+    cur_level = 0                       # published ladder level (start standing)
+    last_step_t = time.monotonic()
+    last_pub_mode = None
     while True:
         with _lock:
             pc = _policy_cmd["v"]
@@ -92,27 +115,55 @@ def main():
             s.send(build_command_message(start=False, stop=True, planner=True))
             print("[gui-drive] policy STOP", flush=True)
 
-        # facing heading from turn rate (turn=+1 -> CCW/left: yaw increases, since
-        # facing=[cos,sin] and robot +Y is left). Hold to rotate, keep on release.
-        yaw += turn * YAW_GAIN * dt
-        facing = [math.cos(yaw), math.sin(yaw), 0.0]
-
-        # body-frame [left, forward] -> world via facing (mirror of streamer math)
+        # ── SAFE POSTURE SEQUENCING ──────────────────────────────────────────
+        # Walk the ladder one step toward the requested pose, dwelling DWELL_S at
+        # each so SONIC lands each posture before descending/rising the next.
+        # Until settled, publish the intermediate posture and LOCK movement+turn.
+        tgt_level = _ladder_level(gait)
+        now = time.monotonic()
+        if cur_level != tgt_level and (now - last_step_t) >= DWELL_S:
+            cur_level += 1 if tgt_level > cur_level else -1
+            last_step_t = now
+        settled = (cur_level == tgt_level)
         left, forward = strafe, fwd
         mag = math.hypot(left, forward)
-        if mag < DEADZONE:
-            mode, movement = IDLE, [0.0, 0.0, 0.0]
+        moving_input = mag >= DEADZONE
+        # mode resolution (release = stop, but DON'T pop a ground posture up to
+        # IDLE — that would trigger a rise). So: standing gait + no input -> IDLE
+        # (stand still); a ground posture -> stay in that posture (in place);
+        # while transitioning -> the intermediate ladder posture.
+        if not settled:
+            mode = POSTURE_LADDER[cur_level]
+        elif gait in (1, 2, 3) and not moving_input:
+            mode = IDLE
         else:
+            mode = gait
+
+        # facing rotates only when settled; movement only when settled, the mode
+        # can move, and there's input — never walk/turn mid-transition.
+        if settled:
+            yaw += turn * YAW_GAIN * dt
+        facing = [math.cos(yaw), math.sin(yaw), 0.0]
+        if settled and mode in MOVING_MODES and moving_input:
             perp_x, perp_y = -facing[1], facing[0]
-            mg0 = perp_x * left + facing[0] * forward
-            mg1 = perp_y * left + facing[1] * forward
-            mode, movement = gait, [mg0, mg1, 0.0]
+            movement = [perp_x * left + facing[0] * forward,
+                        perp_y * left + facing[1] * forward, 0.0]
+        else:
+            movement = [0.0, 0.0, 0.0]
 
         s.send(build_planner_message(mode, movement, facing, speed=speed, height=-1.0))
+
+        # surface posture changes (log + loco-mode marker so the GUI pill follows)
+        if mode != last_pub_mode:
+            note = "到位" if settled else f"过渡中 → 目标 {LADDER_NAMES.get(gait, gait)}"
+            print(f"[gui-drive] 姿势 -> {LADDER_NAMES.get(mode, mode)}  ({note})", flush=True)
+            print(f"[PlannerLoop] Mode -> {mode}: {MARK_NAMES.get(mode, 'Mode' + str(mode))}", flush=True)
+            last_pub_mode = mode
+
         dbg += 1
         if dbg % 40 == 0:
-            print(f"[gui-drive] gait={gait} mode={mode} move=({movement[0]:.2f},{movement[1]:.2f}) "
-                  f"yaw={math.degrees(yaw):.0f}deg", flush=True)
+            print(f"[gui-drive] mode={mode} settled={settled} "
+                  f"move=({movement[0]:.2f},{movement[1]:.2f}) yaw={math.degrees(yaw):.0f}deg", flush=True)
         time.sleep(dt)
 
 

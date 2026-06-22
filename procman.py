@@ -60,6 +60,9 @@ class ProcSpec:
     env_extra: dict[str, str] = field(default_factory=dict)
     # name -> regex; matches recorded into proc.parsed
     parse_regexes: dict[str, re.Pattern] = field(default_factory=dict)
+    # explicit log path (else run_dir/<name>.log). Used so each training run
+    # gets its OWN log -> per-model loss curve doesn't collide with the next.
+    logfile: Path | None = None
 
 
 class Proc:
@@ -286,12 +289,17 @@ class ProcessManager:
         # ACT training params (set before start("convert_dataset")/start("act_train"))
         self._train: dict = {"sessions": "all", "repo_id": "g1_pico_act/v1",
                              "images": "rgb", "touch": 0, "steps": 100000}
+        # ACT inference target (set before start("act_infer"))
+        self._infer: dict = {"checkpoint": "", "iface": "enp132s0"}
 
     def prepare_playback(self, episode: str, speed: float) -> None:
         self._pb = {"episode": episode, "speed": speed}
 
     def prepare_train(self, **kw) -> None:
         self._train.update({k: v for k, v in kw.items() if v is not None})
+
+    def prepare_infer(self, checkpoint: str, iface: str) -> None:
+        self._infer = {"checkpoint": checkpoint, "iface": iface}
 
     # ── specs ────────────────────────────────────────────────────────────────
     def _spec(self, name: str, vis: bool = False) -> ProcSpec:
@@ -371,14 +379,37 @@ class ProcessManager:
             )
         if name == "act_train":
             t = self._train
-            outdir = config.TRAINING_DIR / str(t["repo_id"]).replace("/", "_")
+            safe = str(t["repo_id"]).replace("/", "_")
+            outdir = config.TRAINING_DIR / safe
+            # lerobot's default torchcodec decoder SIGILLs intermittently in the
+            # DataLoader workers -> force pyav + fewer workers (root-cause fix),
+            # checkpoint every 10k, and (the queue auto-resumes) so a residual
+            # crash costs little. resume re-enters from checkpoints/last.
+            common = ["--num_workers=2", "--save_freq=10000", "--dataset.video_backend=pyav"]
+            if t.get("resume"):
+                cfg = outdir / "checkpoints" / "last" / "pretrained_model" / "train_config.json"
+                cmd = [str(config.ACT_TRAIN_VENV_PY), "-m", "lerobot.scripts.lerobot_train",
+                       f"--config_path={cfg}", "--resume=true", *common]
+            else:
+                cmd = [str(config.ACT_TRAIN_VENV_PY), "-m", "lerobot.scripts.lerobot_train",
+                       f"--dataset.repo_id={t['repo_id']}", "--policy.type=act",
+                       "--policy.push_to_hub=false", f"--steps={int(t['steps'])}",
+                       f"--output_dir={outdir}", *common]
             return ProcSpec(
-                "act_train",
-                [str(config.ACT_TRAIN_VENV_PY), "-m", "lerobot.scripts.lerobot_train",
-                 f"--dataset.repo_id={t['repo_id']}", "--policy.type=act",
-                 "--policy.push_to_hub=false", f"--steps={int(t['steps'])}",
-                 f"--output_dir={outdir}"],
+                "act_train", cmd, cwd=config.REPO_ROOT, profile="py",
+                # per-model log so each run's loss curve is isolated + findable.
+                logfile=self.run_dir / f"act_train__{safe}.log",
+            )
+        if name == "act_infer":
+            inf = self._infer
+            return ProcSpec(
+                "act_infer",
+                [str(config.VENV_PY), str(config.ACT_INFER_PY),
+                 str(inf["checkpoint"]), str(inf["iface"])],
                 cwd=config.REPO_ROOT, profile="py",
+                env_extra={"GEAR_SONIC_ROOT": str(config.REPO_ROOT),
+                           "WBC_ACT_PY": str(config.ACT_TRAIN_VENV_PY),
+                           "REC_IFACE": str(inf["iface"])},
             )
         if name == "recorder":
             import checks as _checks
@@ -401,7 +432,7 @@ class ProcessManager:
             )
         raise KeyError(name)
 
-    KNOWN = ("sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "recorder", "install_pico", "pc_service", "playback", "convert_dataset", "act_train")
+    KNOWN = ("sim_loop", "deploy_sim", "deploy_real", "pico_streamer", "brainco_hand", "gui_drive", "recorder", "install_pico", "pc_service", "playback", "convert_dataset", "act_train", "act_infer")
 
     # ── API ──────────────────────────────────────────────────────────────────
     def get(self, name: str) -> Proc | None:
@@ -420,8 +451,8 @@ class ProcessManager:
             p = self._procs.get("deploy_real")
             if p and p.alive():
                 return {"ok": False, "error": "deploy_real 还在运行，先优雅停止它"}
-        # gui_drive, pico_streamer and playback all bind ZMQ 5556 -> mutually exclusive.
-        _z5556 = ("gui_drive", "pico_streamer", "playback")
+        # gui_drive, pico_streamer, playback, act_infer all bind ZMQ 5556 -> mutually exclusive.
+        _z5556 = ("gui_drive", "pico_streamer", "playback", "act_infer")
         if name in _z5556:
             for other in _z5556:
                 if other == name:
@@ -434,7 +465,9 @@ class ProcessManager:
             existing = self._procs.get(name)
             if existing and existing.alive():
                 return {"ok": False, "error": f"{name} already running"}
-            proc = Proc(self._spec(name, vis=vis), self.run_dir / f"{name}.log")
+            spec = self._spec(name, vis=vis)
+            logfile = spec.logfile or (self.run_dir / f"{name}.log")
+            proc = Proc(spec, logfile)
             self._procs[name] = proc
         return proc.start()
 
